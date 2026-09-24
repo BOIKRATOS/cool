@@ -122,7 +122,7 @@ button#start:focus-visible{outline:2px solid var(--sky);outline-offset:3px}
       <kbd>1 / 3</kbd><span>Roll, in space</span><kbd>G</kbd><span>Hide creative HUD</span>
       <kbd>P</kbd><span>Render scale</span><kbd>O</kbd><span>Detail level</span>
       <kbd>U</kbd><span>Freeze the sun</span><kbd>N</kbd><span>No collision (creative)</span>
-      <kbd>J</kbd><span>Landscape sim on/off</span><kbd>K</kbd><span>Clouds on/off</span>
+      <kbd>K</kbd><span>Clouds on/off</span><kbd>M</kbd><span>Sound on/off</span>
     </div>
   </div>
 </div>
@@ -264,7 +264,7 @@ function TerrainModule(){
 
   // ---------- the height function ----------
   // (x,y,z) is a unit vector; returns meters above sea level. Side outputs in o*.
-  let oRiver = 0, oMoist = 0, oPatch = 0, oMount = 0, oC1 = 60, oC2 = 60, oOcean = 0;
+  let oRiver = 0, oMoist = 0, oPatch = 0, oC1 = 60, oC2 = 60, oLvl = 0;
   const GRAD = 2.96;  // mean |gradient| of the noise (per unit input) near zero-crossings
   function heightAt(x, y, z, minWL){
     // 1. continents: domain-warped fBm on the unit sphere
@@ -276,7 +276,6 @@ function TerrainModule(){
     for (let i = 0; i < 7; i++) { c += a * noise(cx * f + 31.7, cy * f + 17.1, cz * f + 9.3); nrm += a; a *= 0.5; f *= 2.03; }
     c /= nrm;
     const e = c - OCEAN_BIAS;
-    oOcean = e < 0 ? 1 : 0;
 
     // 2. base elevation: continental shelf -> abyss, and gently rising continents
     let h;
@@ -287,7 +286,6 @@ function TerrainModule(){
     // 3. mountain belts (ridged multifractal), masked to continental interiors
     const mm = 0.75 * noise(x * 3.6 + 3.3, y * 3.6 + 7.1, z * 3.6 + 1.9) + 0.25 * noise(x * 8.3 + 5.9, y * 8.3 + 2.4, z * 8.3 + 8.1);
     const mMask = smooth(0.08, 0.5, mm) * smooth(0.02, 0.12, e);
-    oMount = mMask;
     if (mMask > 0.001) {
       let sum = 0, amp = 1, wl = 52000, w = 1;
       for (let i = 0; i < 11; i++) {
@@ -309,6 +307,7 @@ function TerrainModule(){
 
     // 5. rivers: zero-lines of warped noise, carved down to sea level
     oRiver = 0; oC1 = 60; oC2 = 60;
+    oLvl = 380 * Math.pow(Math.max(e, 0), 1.3);   // riverbeds climb gently inland (~135 m at the far upstream ends)
     if (e > -0.006 && e < 0.45) {
       const rs = smooth(-0.006, 0.02, e) * (1 - smooth(0.25, 0.45, e)) * (1 - smooth(0.12, 0.5, mMask));
       if (rs > 0.002) {
@@ -321,7 +320,7 @@ function TerrainModule(){
         const n1 = noise(qx * f1 + 2.2, qy * f1 + 7.3, qz * f1 + 4.4) + 0.22 * noise(qx * f1 * 3.1 + 9.1, qy * f1 * 3.1 + 1.4, qz * f1 * 3.1 + 5.8);
         const d1 = Math.abs(n1) * 120000 / GRAD;
         const coastal = 1 - smooth(0.0, 0.25, e);
-        const lvl = 380 * Math.pow(Math.max(e, 0), 1.3);   // riverbeds climb gently inland (~135 m at the far upstream ends)
+        const lvl = oLvl;
         const wC1 = 22 + 70 * coastal, wV1 = 900 + 1500 * smooth(0.02, 0.3, e);
         const gC1 = smooth(wC1 * 1.6, wC1 * 0.6, minWL), gV1 = smooth(wV1 * 1.3, wV1 * 0.45, minWL);
         let ht = carve(h, d1, wC1, wV1, 3.5 + 2.5 * coastal, gC1, gV1, lvl);
@@ -412,14 +411,14 @@ function TerrainModule(){
     const minWL = Math.max(1.6, spacing * 1.8);
     const G = N + 3;
     const hh = new Float64Array(G * G), px = new Float64Array(G * G * 3), dd = new Float64Array(G * G * 3);
-    const riv = new Float32Array(G * G), moi = new Float32Array(G * G), pat = new Float32Array(G * G), rc1 = new Float32Array(G * G), rc2 = new Float32Array(G * G);
+    const riv = new Float32Array(G * G), moi = new Float32Array(G * G), pat = new Float32Array(G * G), rc1 = new Float32Array(G * G), rc2 = new Float32Array(G * G), rl = new Float32Array(G * G);
     const d = [0, 0, 0];
     let minH = 1e9, maxH = -1e9;
     for (let j = 0; j < G; j++) for (let i = 0; i < G; i++) {
       faceDir(face, u0 + (i - 1) * S / N, v0 + (j - 1) * S / N, d);
       const h = heightAt(d[0], d[1], d[2], minWL);
       const k = j * G + i;
-      hh[k] = h; riv[k] = oRiver; moi[k] = oMoist; pat[k] = oPatch; rc1[k] = oC1; rc2[k] = oC2;
+      hh[k] = h; riv[k] = oRiver; moi[k] = oMoist; pat[k] = oPatch; rc1[k] = oC1; rc2[k] = oC2; rl[k] = oLvl;
       const rr = R + h;
       dd[k * 3] = d[0]; dd[k * 3 + 1] = d[1]; dd[k * 3 + 2] = d[2];
       px[k * 3] = d[0] * rr; px[k * 3 + 1] = d[1] * rr; px[k * 3 + 2] = d[2] * rr;
@@ -513,6 +512,29 @@ function TerrainModule(){
       if (idx.length) waterIdx = new Uint16Array(idx); else water = null;
     }
 
+    // ---- river water: only on patches detailed enough to hold the carved channel (the rest paint rivers on) ----
+    let rwater = null, rwaterIdx = null;
+    if (level >= 13) {
+      const wetR = (v) => { const k = kOf(v % (N + 1), (v / (N + 1)) | 0); return inRiver(rl[k], rc1[k], rc2[k]) && hh[k] < rl[k] + RIVER_SURF; };
+      const idx = [];
+      for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+        const a = j * (N + 1) + i, b = a + 1, c = a + N + 1, dq = c + 1;
+        if (wetR(a) || wetR(b) || wetR(c) || wetR(dq)) idx.push(a, b, c, b, dq, c);
+      }
+      if (idx.length) {
+        rwater = new Float32Array(NV * 8);
+        for (let v = 0; v < NV; v++) {
+          const k = kOf(v % (N + 1), (v / (N + 1)) | 0), L = rl[k] + RIVER_SURF, rr = R + L, b = v * 8;
+          const hm = Math.min(hh[k], hh[k] + mor[v * 3] * dd[k * 3] + mor[v * 3 + 1] * dd[k * 3 + 1] + mor[v * 3 + 2] * dd[k * 3 + 2]);
+          const X = dd[k * 3] * rr - cx, Y = dd[k * 3 + 1] * rr - cy, Z = dd[k * 3 + 2] * rr - cz;
+          rwater[b] = X; rwater[b + 1] = Y; rwater[b + 2] = Z;
+          rwater[b + 3] = wbx + X; rwater[b + 4] = wby + Y; rwater[b + 5] = wbz + Z;
+          rwater[b + 6] = L - hm; rwater[b + 7] = 1;      // depth; flagged as river (calm, no surf foam)
+        }
+        rwaterIdx = new Uint16Array(idx);
+      }
+    }
+
     // ---- trees, rocks, cacti ----
     // Level 11 owns every tree. Levels 10 and 9 hold exact subsets (every 2nd / 4th slot) of the same
     // trees for the distant crossed-plane and billboard LODs. Each decision uses full-detail values at the
@@ -589,30 +611,18 @@ function TerrainModule(){
       for (let i = n - 1; i > 0; i--) { const j = (r() * (i + 1)) | 0; for (let c = 0; c < 8; c++) { const t = out[i * 8 + c]; out[i * 8 + c] = out[j * 8 + c]; out[j * 8 + c] = t; } }
       if (n) grass = new Float32Array(out);
     }
-    return { buf, minH, maxH, center: [cx, cy, cz], water, waterIdx, waterInner, trees, treeCounts, grass };
+    return { buf, minH, maxH, center: [cx, cy, cz], water, waterIdx, waterInner, rwater, rwaterIdx, trees, treeCounts, grass };
   }
 
   function heightFull(x, y, z){ return heightAt(x, y, z, 1.6); }
+  // river water: a surface RIVER_SURF above the river level, inside the carved channel (away from the sea,
+  // where the ocean surface fills the channel instead)
+  const RIVER_SURF = 0.6;
+  function inRiver(lvl, c1, c2){ return lvl > 0.3 && Math.min(Math.abs(c1), Math.abs(c2)) < 1.5; }
 
-  // Base data for one erosion-simulation chunk: n x n cells at cell centres, band-limited to the cell size.
-  // RGBA per cell: height, moisture, uplift rate, 0 (the sim fills alpha with the coarser tiers' terrain change)
-  function simBase(face, level, ix, iy, n){
-    const S = 2 / (1 << level), u0 = -1 + ix * S, v0 = -1 + iy * S;
-    const cell = FACE_ARC / (1 << level) / n, minWL = Math.max(1.6, cell * 1.8);
-    const out = new Float32Array(n * n * 4), d = [0, 0, 0];
-    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
-      faceDir(face, u0 + (i + 0.5) * S / n, v0 + (j + 0.5) * S / n, d);
-      const o = (j * n + i) * 4;
-      out[o] = heightAt(d[0], d[1], d[2], minWL); out[o + 1] = oMoist + 2 * oOcean;   // +2 flags open ocean (rivers below sea level are not ocean)
-      // blue channel: + tectonic uplift rate in mountain belts (m/s of geological time), or - spring/baseflow strength in river channels
-      const spring = cell <= 16 ? smooth(0.8, 0.3, Math.min(Math.abs(oC1), Math.abs(oC2))) : 0;   // coarse cells can't hold a 40 m river
-      out[o + 2] = oMount > 0.02 ? oMount * 3e-10 : -spring;
-    }
-    return out;
-  }
-
-  return { R, N, MAXL, TREE_LEVEL, WRAP, FACE_ARC, NV, NS, NT, FACES, heightAt, heightFull, forestFn, faceDir, dirToFace, buildPatch, simBase, noise,
-    get river(){ return oRiver; }, get moist(){ return oMoist; }, get mount(){ return oMount; }, get patch(){ return oPatch; } };
+  return { R, N, MAXL, TREE_LEVEL, WRAP, FACE_ARC, NV, NS, NT, FACES, heightAt, heightFull, forestFn, faceDir, dirToFace, buildPatch, noise,
+    get river(){ return oRiver; }, get moist(){ return oMoist; }, get patch(){ return oPatch; },
+    get riverSurface(){ return inRiver(oLvl, oC1, oC2) ? oLvl + RIVER_SURF : -1e9; } };
 }
 
 // ---------------------------------------------------------------------
@@ -778,12 +788,6 @@ uniform mat4 uVP;
 uniform float uLogFC;
 uniform float uCloudAmt;
 uniform sampler2DArray uTex;   // generated material textures: rgb = albedo x0.5, a = height
-// landscape simulation, bound per draw call for the tier that covers this patch:
-//   uSimR  = terrain change, cut depth, water depth (or -ice), +1 land / -1 open sea
-//   uSimR2 = loose sediment, vegetation, flow velocity (u, v)
-uniform highp sampler2D uSimR; uniform highp sampler2D uSimR2;
-uniform float uSimOn; uniform mat3 uSimF; uniform vec4 uSimChunk; uniform vec2 uSimSlot; uniform float uSimAtlas; uniform float uSimCell;
-uniform vec4 uSimNbX; uniform vec4 uSimNbY;   // neighbour chunk slots (-x, +x) and (-y, +y); negative = none
 vec4 project(vec3 rel){
   vec4 c = uVP * vec4(rel, 1.0);
 #ifndef REVZ
@@ -791,28 +795,6 @@ vec4 project(vec3 rel){
 #endif
   return c;
 }
-// cell coordinate inside this chunk (cell centres on integers)
-vec2 simCell(vec3 dir){
-  float a = dot(dir, uSimF[0]);
-  vec2 uv = vec2(atan(dot(dir, uSimF[1]) / a), atan(dot(dir, uSimF[2]) / a)) * (4.0 / PI);
-  return (uv - uSimChunk.xy) / uSimChunk.z * 128.0 - 0.5;
-}
-// texel for cell q, reaching into the neighbouring chunk across an edge (so chunk borders never show a seam)
-ivec2 simTexel(ivec2 q){
-  if (q.x < 0)   { if (uSimNbX.x < 0.0) q.x = 0;   else return ivec2(uSimNbX.xy) + ivec2(127, clamp(q.y, 0, 127)); }
-  if (q.x > 127) { if (uSimNbX.z < 0.0) q.x = 127; else return ivec2(uSimNbX.zw) + ivec2(0, clamp(q.y, 0, 127)); }
-  if (q.y < 0)   { if (uSimNbY.x < 0.0) q.y = 0;   else return ivec2(uSimNbY.xy) + ivec2(q.x, 127); }
-  if (q.y > 127) { if (uSimNbY.z < 0.0) q.y = 127; else return ivec2(uSimNbY.zw) + ivec2(q.x, 0); }
-  return ivec2(uSimSlot) + q;
-}
-vec4 simBilinear(highp sampler2D t, vec2 c){
-  c = clamp(c, vec2(-1.0), vec2(128.0));
-  vec2 f0 = floor(c), f = c - f0; ivec2 p = ivec2(f0);
-  return mix(mix(texelFetch(t, simTexel(p), 0), texelFetch(t, simTexel(p + ivec2(1, 0)), 0), f.x),
-             mix(texelFetch(t, simTexel(p + ivec2(0, 1)), 0), texelFetch(t, simTexel(p + ivec2(1, 1)), 0), f.x), f.y);
-}
-vec4 simAt(vec3 dir){ return uSimOn < 0.5 ? vec4(0.0, 0.0, 0.0, 1.0) : simBilinear(uSimR, simCell(dir)); }
-vec4 simAt2(vec3 dir){ return uSimOn < 0.5 ? vec4(0.0) : simBilinear(uSimR2, simCell(dir)); }
 float hash13(vec3 p){ p = fract(p * 0.1031); p += dot(p, p.zyx + 31.32); return fract((p.x + p.y) * p.z); }
 vec3 hash33(vec3 p){ p = fract(p * vec3(0.1031, 0.1030, 0.0973)); p += dot(p, p.yxz + 33.33); return fract((p.xxy + p.yxx) * p.zyx); }
 float vnoise(vec3 x){
@@ -931,21 +913,18 @@ layout(location=4) in vec3 aNrm;
 layout(location=5) in vec4 aData;
 layout(location=6) in vec2 aRiv;
 uniform vec3 uOffset; uniform vec3 uCamP; uniform vec2 uMorph;
-out vec3 vRel; out vec3 vWrap; out vec3 vNrm; out vec3 vPlanet; out vec4 vData; out float vH; out vec2 vRiv; out vec4 vSim; out vec4 vSim2;
+out vec3 vRel; out vec3 vWrap; out vec3 vNrm; out vec3 vPlanet; out vec4 vData; out float vH; out vec2 vRiv;
 invariant gl_Position;
 void main(){
   vec3 rel = aPos + uOffset;
   float m = smoothstep(uMorph.x, uMorph.y, length(rel));
   rel += aMorph * m;
-  vec3 up = normalize(rel + uCamP);
-  vSim = simAt(up); vSim2 = simAt2(up);
-  rel += up * vSim.r;           // erosion, deposition and uplift move the ground
-  vRel = rel; vWrap = aWrap + aMorph * m; vNrm = aNrm; vPlanet = rel + uCamP; vData = aData; vH = aH + vSim.r; vRiv = aRiv;
+  vRel = rel; vWrap = aWrap + aMorph * m; vNrm = aNrm; vPlanet = rel + uCamP; vData = aData; vH = aH; vRiv = aRiv;
   gl_Position = project(rel);
 }`;
 
 const TERRAIN_FS = `
-in vec3 vRel; in vec3 vWrap; in vec3 vNrm; in vec3 vPlanet; in vec4 vData; in float vH; in vec2 vRiv; in vec4 vSim; in vec4 vSim2;
+in vec3 vRel; in vec3 vWrap; in vec3 vNrm; in vec3 vPlanet; in vec4 vData; in float vH; in vec2 vRiv;
 uniform float uTreeDist; uniform float uGrassDist;
 out vec4 fragColor;
 const vec3 C_LUSH = vec3(0.036, 0.080, 0.016);
@@ -1009,24 +988,6 @@ void main(){
   float snow = smoothstep(snowLine - 160.0, snowLine + 160.0, h) * smoothstep(0.52, 0.7, slope + (n3 - 0.5) * 0.2);
   snow = max(snow, smoothstep(0.0, -0.15, temp) * smoothstep(0.42, 0.66, slope));
   col = mix(col, C_SNOW, snow);
-  // ---- landscape evolution: what the simulation has exposed or laid down at the surface
-  if (uSimOn > 0.5 && vSim.a > 0.0) {
-    float soilish = (1.0 - rockF) * (1.0 - snow) * (1.0 - beach) * (1.0 - desert);
-    // (vegetation still protects soil in the simulation; its colour comes from the biome shading, so tier borders never show)
-    // rock exposed once the soil is cut through: hard caprock vs banded soft strata, by elevation (smooth blends, no speckle)
-    float rockX = smoothstep(1.5, 3.0, vSim.g);
-    float hardBand = smoothstep(0.34, 0.42, fract(vH / 55.0 + 0.3 * sin(vH / 170.0)));
-    vec3 rk = mix(vec3(0.11, 0.105, 0.10), vec3(0.31, 0.20, 0.13) * (0.82 + 0.18 * sin(vH * 0.9 + n1 * 3.0)), hardBand);
-    col = mix(col, rk * (0.8 + 0.35 * n3), rockX * 0.85 * (1.0 - snow));
-    rockF = max(rockF, rockX * 0.8);
-    // fresh sediment laid down by water: floodplains, fans, deltas
-    col = mix(col, vec3(0.21, 0.17, 0.115) * (0.85 + 0.3 * n3), smoothstep(0.3, 1.5, vSim2.x) * 0.85 * (1.0 - snow));
-  }
-  // ice sheets and glaciers from the simulation (blue where it is thick)
-  float iceD = max(-vSim.b, 0.0), simIce = smoothstep(0.05, 0.6, iceD);
-  col = mix(col, mix(C_SNOW, vec3(0.58, 0.75, 0.88), smoothstep(8.0, 60.0, iceD)), simIce);
-  snow = max(snow, simIce);
-
   // ---- material textures, sharper the closer you get ----
   float tNear = 1.0 - smoothstep(260.0, 420.0, dist);
   float tClose = 1.0 - smoothstep(40.0, 75.0, dist);
@@ -1057,14 +1018,13 @@ void main(){
   float grassy = (1.0 - rockF) * (1.0 - snow) * (1.0 - beach) * (1.0 - desert) * (1.0 - tundra);
   col *= mix(1.0, 0.72, grassy * (1.0 - smoothstep(uGrassDist * 0.6, uGrassDist, dist)));
 
-  // one bump call: procedural detail near the camera plus the simulated erosion (so carved gullies shade right)
-  float bumpH = vSim.r;
+  // one bump call: procedural detail near the camera
+  float bumpH = 0.0;
   if (nearF > 0.0) {
     float bamp = (0.3 + 1.4 * rockF) * (1.0 - snow * 0.85) * (1.0 - beach * 0.5);
     bumpH += ((n2 - 0.5) * 1.0 + (n3 - 0.5) * 0.35) * bamp * nearF + bh * (1.0 - snow * 0.6);
   }
   vec3 N = bumpN(vRel, Ng, bumpH);
-  col *= mix(1.0, 0.55, smoothstep(0.0, 0.04, max(vSim.b, 0.0)) * step(0.0, vSim.a) * (1.0 - smoothstep(110.0 * uSimCell, 180.0 * uSimCell, dist)) * (1.0 - snow));   // wet ground next to water
   float mus = dot(up, uSunDir);
   vec3 Ts = sunTrans(r, mus);
   float cs = cloudShadow(vPlanet);
@@ -1084,7 +1044,7 @@ void main(){
     float sp = step(0.994, hash13(cell)) * pow(ndh, 6.0) * snow * tClose;
     c += Ts * cs * sp * 3.0 * ndl;
   }
-  // ---- rivers painted at every distance (the carved channel only exists on detailed patches) ----
+  // ---- rivers painted on from a distance (up close the carved channel holds a real river surface) ----
   float rA = max(riverCov(vRiv.x), riverCov(vRiv.y)) * smoothstep(90.0, 350.0, dist) * step(-0.2, h);
   if (rA > 0.002) {
     vec3 Rf = reflect(-V, up); Rf = normalize(Rf + up * max(0.0, 0.03 - dot(Rf, up)));
@@ -1102,7 +1062,7 @@ layout(location=0) in vec3 aPos;
 layout(location=1) in vec3 aWrap;
 layout(location=2) in vec2 aData;
 uniform vec3 uOffset; uniform vec3 uCamP;
-out vec3 vRel; out vec3 vWrap; out vec3 vPlanet; out vec2 vData; out float vCover;
+out vec3 vRel; out vec3 vWrap; out vec3 vPlanet; out vec2 vData;
 void main(){
   // grow each water patch very slightly so neighbours overlap: closes hairline LOD cracks.
   // the wave coordinates shift by the same world offset, so the overlap shades identically.
@@ -1110,20 +1070,17 @@ void main(){
   vec3 rel = aPos + grow + uOffset;
   // scaling a curved patch about its centre also lifts it off the sphere by e*|t|^2/2R; undo that
   rel -= normalize(rel + uCamP) * (0.0006 * dot(aPos, aPos) / (2.0 * RG));
-  vec4 sim = simAt(normalize(rel + uCamP));
-  vCover = (uSimOn > 0.5 && sim.a >= 0.0 && sim.b > 0.03) ? 1.0 - smoothstep(110.0 * uSimCell, 180.0 * uSimCell, length(rel)) : 0.0;
   vRel = rel; vWrap = aWrap + grow; vPlanet = rel + uCamP; vData = aData; gl_Position = project(rel);
 }`;
 
 const WATER_FS = `
-in vec3 vRel; in vec3 vWrap; in vec3 vPlanet; in vec2 vData; in float vCover;
+in vec3 vRel; in vec3 vWrap; in vec3 vPlanet; in vec2 vData;
 uniform float uPixAng;
 out vec4 fragColor;
 const vec3 WK[8] = vec3[8](vec3(29.0,3.0,-29.0), vec3(-40.0,36.0,38.0), vec3(70.0,-52.0,63.0), vec3(-120.0,-95.0,106.0),
                            vec3(185.0,170.0,-160.0), vec3(-310.0,250.0,290.0), vec3(500.0,-410.0,-430.0), vec3(-760.0,-700.0,770.0));
 const float WS[8] = float[8](0.10, 0.09, 0.085, 0.08, 0.07, 0.06, 0.05, 0.045);
 void main(){
-  if (vCover > 0.5) discard;
   float dist = length(vRel);
   float r = length(vPlanet);
   vec3 up = vPlanet / r;
@@ -1204,7 +1161,6 @@ void main(){
   vFade = smoothstep(uFade.x, uFade.y, dist) * (1.0 - smoothstep(uFade.z, uFade.w, dist));
   if (vFade <= 0.0) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
   vec3 up = normalize(base + uCamP);
-  base += up * simAt(up).r;
   vec3 t0 = normalize(cross(up, abs(up.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
   vec3 b0 = cross(t0, up);
   float c = cos(aI1.y), s = sin(aI1.y);
@@ -1288,7 +1244,6 @@ void main(){
   vFade = smoothstep(uFade.x, uFade.y, dist) * (1.0 - smoothstep(uFade.z, uFade.w, dist));
   if (vFade <= 0.0) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
   vec3 up = normalize(base + uCamP);
-  base += up * simAt(up).r;
   vec4 cell = uCell[int(aI1.x + 0.5)];
   vec3 right;
   if (uBillboard > 0.5) right = normalize(cross(up, base));      // face the camera, stay upright
@@ -1341,9 +1296,6 @@ void main(){
   float fade = 1.0 - smoothstep(uGrassDist * 0.65, uGrassDist, dist);
   if (fade <= 0.0) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
   vec3 up = normalize(base + uCamP);
-  vec4 sim = simAt(up);
-  base += up * sim.r;
-  fade *= 1.0 - smoothstep(0.03, 0.12, max(sim.b, 0.0)) * step(0.0, sim.a);      // grass drowns under simulated water
   fade *= clamp((uGrassN - float(gl_InstanceID)) / max(uGrassN * 0.2, 1.0), 0.0, 1.0);   // density LOD thins smoothly (no popping)
   if (fade <= 0.0) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
   vec3 t0 = normalize(cross(up, abs(up.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
@@ -1714,351 +1666,6 @@ void main(){
 }`;
 
 // ---------------------------------------------------------------------
-// 4b. LANDSCAPE EVOLUTION SHADERS (Terra Firma style)
-//   Per cell, per tier atlas (each chunk is 128x128 cells in its own slot):
-//     A: cut (rock/soil removed below the original surface; negative = uplifted), sed (loose deposits), water depth, suspended sediment
-//     E: ice (m), groundwater (m), vegetation (0..1, <0 = not yet set), flow speed (-1 marks the sea)
-//     F: water outflow through the 4 pipes (m^3/s)
-//     B: procedural height, moisture, uplift rate, coarser tiers' terrain change (added under this tier)
-//     R: what the renderer reads: total terrain change, water depth, ice, packed(vegetation, material, speed)
-//   Materials: loose sediment on top, then SOIL m of soil, then horizontal rock strata that alternate hard / soft
-//   with elevation (that is what makes mesas, terraces and gorges when rivers cut down through them).
-// ---------------------------------------------------------------------
-const SIM_HEAD = `
-uniform highp sampler2D uA; uniform highp sampler2D uE; uniform highp sampler2D uF; uniform highp sampler2D uBase;
-uniform ivec2 uSlot; uniform ivec2 uNb[4];
-uniform float uCell; uniform float uDt; uniform float uMorfac;
-const int SN = 128;
-const float SOIL = 1.5;
-ivec2 nbTex(ivec2 c, out bool ok){
-  ok = true;
-  if (c.x < 0)   { if (uNb[0].x < 0) { ok = false; return uSlot + ivec2(0, clamp(c.y, 0, SN - 1)); }      return uNb[0] + ivec2(SN - 1, clamp(c.y, 0, SN - 1)); }
-  if (c.x >= SN) { if (uNb[1].x < 0) { ok = false; return uSlot + ivec2(SN - 1, clamp(c.y, 0, SN - 1)); } return uNb[1] + ivec2(0, clamp(c.y, 0, SN - 1)); }
-  if (c.y < 0)   { if (uNb[2].x < 0) { ok = false; return uSlot + ivec2(c.x, 0); }      return uNb[2] + ivec2(c.x, SN - 1); }
-  if (c.y >= SN) { if (uNb[3].x < 0) { ok = false; return uSlot + ivec2(c.x, SN - 1); } return uNb[3] + ivec2(c.x, 0); }
-  return uSlot + c;
-}
-// diagonal neighbours stay inside the chunk (edge cells just see fewer diagonals)
-// diagonal neighbours: across one chunk edge they come from the neighbour chunk; only the exact corner is skipped
-ivec2 nbTex8(ivec2 c, ivec2 o, out bool ok){
-  ivec2 q = c + o;
-  if ((q.x < 0 || q.x >= SN) && (q.y < 0 || q.y >= SN)) { ok = false; return uSlot; }
-  return nbTex(q, ok);
-}
-float sedAt(ivec2 q){
-  if ((q.x < 0 || q.x >= SN) && (q.y < 0 || q.y >= SN)) q = clamp(q, ivec2(0), ivec2(SN - 1));
-  bool ok; return texelFetch(uA, nbTex(q, ok), 0).a;
-}
-bool oceanCell(vec4 B){ return B.g > 1.5; }              // generator flag: open ocean (river channels are not ocean)
-float moistOf(vec4 B){ return B.g > 1.5 ? B.g - 2.0 : B.g; }
-float groundAt(ivec2 t){ vec4 a = texelFetch(uA, t, 0); vec4 b = texelFetch(uBase, t, 0); return b.r + b.a + a.g - a.r; }
-float surfAt(ivec2 t){ vec4 a = texelFetch(uA, t, 0); vec4 b = texelFetch(uBase, t, 0); return b.r + b.a + a.g - a.r + a.b; }
-// water surface beyond an edge that has no simulated neighbour: continue the slope from the opposite side,
-// so water drains out where the surface runs downhill toward the edge (open boundary, no invisible walls)
-float edgeSurf(ivec2 c, ivec2 o, float W, out bool real){
-  bool ok; ivec2 t = nbTex(c + o, ok); real = ok;
-  if (ok) return surfAt(t);
-  bool ok2; ivec2 t2 = nbTex(c - o, ok2);
-  return 2.0 * W - (ok2 ? surfAt(t2) : W);
-}
-// hardness of whatever is exposed at the surface: 1 = loose sediment ... 0.02 = hard rock
-float erodibility(float cut, float sed, float z, float uplift){
-  if (sed > 0.02) return 1.0;
-  if (cut < SOIL) return 0.45;
-  if (uplift > 1e-10) return 0.02;                                   // crystalline cores of mountain belts
-  return fract(z / 55.0 + 0.3 * sin(z / 170.0)) < 0.38 ? 0.025 : 0.16; // horizontal strata: hard caprock / soft beds
-}
-vec2 velAt(ivec2 c, float d){
-  vec4 F = texelFetch(uF, uSlot + c, 0); bool ok; ivec2 t;
-  float inL = 0.0, inR = 0.0, inB = 0.0, inT = 0.0;
-  t = nbTex(c + ivec2(-1, 0), ok); if (ok) inL = texelFetch(uF, t, 0).y;
-  t = nbTex(c + ivec2(1, 0), ok);  if (ok) inR = texelFetch(uF, t, 0).x;
-  t = nbTex(c + ivec2(0, -1), ok); if (ok) inB = texelFetch(uF, t, 0).w;
-  t = nbTex(c + ivec2(0, 1), ok);  if (ok) inT = texelFetch(uF, t, 0).z;
-  vec2 v = vec2(inL - F.x + F.y - inR, inB - F.z + F.w - inT) * 0.5 / (uCell * max(d, 0.05));
-  float sp = length(v); return sp > 12.0 ? v * (12.0 / sp) : v;
-}
-`;
-
-// pass 1: virtual pipes (shallow-water momentum per pipe, friction, never give away more water than the cell holds)
-const SIM_FLUX_FS = SIM_HEAD + `
-layout(location=0) out vec4 oF;
-void main(){
-  ivec2 c = ivec2(gl_FragCoord.xy) - uSlot, me = uSlot + c;
-  vec4 A = texelFetch(uA, me, 0);
-  float W = surfAt(me);
-  vec4 f = texelFetch(uF, me, 0) * exp(-(0.4 + 0.04 / max(A.b, 0.01)) * uDt);   // resistance rises as the film thins: no thin-film jitter
-  float k = uDt * 9.81 * clamp(A.b, 0.02, 2.0);
-  bool real;
-  f.x = max(0.0, f.x + k * (W - edgeSurf(c, ivec2(-1, 0), W, real)));
-  f.y = max(0.0, f.y + k * (W - edgeSurf(c, ivec2(1, 0), W, real)));
-  f.z = max(0.0, f.z + k * (W - edgeSurf(c, ivec2(0, -1), W, real)));
-  f.w = max(0.0, f.w + k * (W - edgeSurf(c, ivec2(0, 1), W, real)));
-  float outV = (f.x + f.y + f.z + f.w) * uDt, vol = A.b * uCell * uCell;
-  if (outV > vol) f *= vol / max(outV, 1e-12);
-  oF = f;
-}`;
-
-// pass 2: climate, water balance, groundwater, vegetation, erosion / deposition, uplift
-const SIM_HYDRO_FS = SIM_HEAD + `
-layout(location=0) out vec4 oA; layout(location=1) out vec4 oE;
-void main(){
-  ivec2 c = ivec2(gl_FragCoord.xy) - uSlot, me = uSlot + c;
-  vec4 A = texelFetch(uA, me, 0), E = texelFetch(uE, me, 0), B = texelFetch(uBase, me, 0), F = texelFetch(uF, me, 0);
-  float cut = A.r, sed = A.g, s = A.a, ice = E.r, gw = E.g, veg = E.b;
-  bool ok; ivec2 t; float inS = 0.0;
-  t = nbTex(c + ivec2(-1, 0), ok); if (ok) inS += texelFetch(uF, t, 0).y;
-  t = nbTex(c + ivec2(1, 0), ok);  if (ok) inS += texelFetch(uF, t, 0).x;
-  t = nbTex(c + ivec2(0, -1), ok); if (ok) inS += texelFetch(uF, t, 0).w;
-  t = nbTex(c + ivec2(0, 1), ok);  if (ok) inS += texelFetch(uF, t, 0).z;
-  float d0 = A.b, d = max(0.0, d0 + uDt * (inS - (F.x + F.y + F.z + F.w)) / (uCell * uCell));
-  float spd = length(velAt(c, 0.5 * (d0 + d)));
-  // slow (geological) processes use M; water sources may only run a little ahead of the flow that carries water away
-  float M = uMorfac, hyd = min(M, 4.0);
-  float H = B.r + B.a + sed - cut;
-  // climate at this cell: latitude, altitude, and the sun (a warm day melts snow)
-  vec2 uv = uSimChunk.xy + (vec2(c) + 0.5) / 128.0 * uSimChunk.z;
-  vec3 dir = normalize(uSimF[0] + tan(uv.x * PI * 0.25) * uSimF[1] + tan(uv.y * PI * 0.25) * uSimF[2]);
-  float lat = abs(dir.y);
-  float T = 27.0 - 48.0 * lat * lat - 0.0065 * max(H, 0.0) + 5.0 * clamp(dot(dir, uSunDir) * 2.0, -1.0, 1.0);
-  float cov = uCloudAmt > 0.0 ? texture(uClouds, uCloudRot * dir).r : 0.0;
-  float precip = (1.5e-6 + 3e-5 * smoothstep(0.5, 0.8, cov)) * (0.3 + 1.2 * moistOf(B));
-  if (T < 0.0) ice = min(ice + min(precip * uDt * M, 0.01 * uCell), 2500.0);   // snow piles up into ice over the years
-  else {
-    d += precip * uDt * hyd;
-    float ablate = min(ice, 3e-7 * T * uDt * M);                     // geological-speed ice loss
-    d += min(ablate, 3e-7 * T * uDt * hyd);                            // but melt water only at the rate the rivers can carry it
-    ice -= ablate;
-  }
-  // groundwater: soaks in (faster under plants), fills up, and seeps back out where it is full (springs, marshes)
-  float gmax = cut < SOIL ? 2.0 : 0.6;
-  float inf = min(min(d, 2e-5 * (0.3 + max(veg, 0.0)) * uDt * hyd), max(0.0, gmax - gw));
-  d -= inf; gw += inf;
-  if (gw > gmax) { d += gw - gmax; gw = gmax; }
-  d = max(0.0, d - (5e-7 * max(T, 0.0) + 1e-5 * min(d, 1.0)) * uDt * hyd);
-  gw = max(0.0, gw - 1.5e-7 * max(veg, 0.0) * uDt * hyd);
-  // vegetation grows toward what water and warmth allow; drowned or frozen ground dies back
-  float suit = smoothstep(0.0, 8.0, T) * smoothstep(0.05, 0.9, gw + 0.5 * min(d, 0.5) + 0.4 * moistOf(B)) * (1.0 - smoothstep(0.4, 1.5, d)) * (1.0 - smoothstep(0.1, 0.6, ice));
-  veg = veg < 0.0 ? suit : veg + (suit - veg) * min(1.0, 3e-8 * uDt * M);
-  // tectonic uplift pushes rock up from below
-  cut -= min(max(B.b, 0.0) * uDt * M, 0.005 * uCell) * step(-150.0, cut);
-  d = max(d, 1.6 * max(-B.b, 0.0));   // river channels keep at least their normal depth (1.6 m mid-channel, 0 at the banks): they run, never overflow                            // baseflow: what the rest of the catchment feeds into the river   // at most ~150 m above the original land: uplift offsets erosion, it doesn't run away
-  if (H < 0.0 && (oceanCell(B) || H < -8.0)) {                        // the open sea (anything >8 m below sea level is sea, even if a coarse cell's centre reads as land)
-    d = -H;
-    float dep = s * min(1.0, 0.05 * uDt * hyd);
-    sed += dep; s -= dep; spd = -1.0;
-  } else {
-    float hL = groundAt(nbTex(c + ivec2(-1, 0), ok)), hR = groundAt(nbTex(c + ivec2(1, 0), ok));
-    float hB = groundAt(nbTex(c + ivec2(0, -1), ok)), hT = groundAt(nbTex(c + ivec2(0, 1), ok));
-    vec2 g = vec2(hR - hL, hT - hB) / (2.0 * uCell);
-    float sinA = length(g) / sqrt(1.0 + dot(g, g));
-    float cap = 0.02 * max(sinA, 0.03) * spd * min(d, 1.0);          // carrying capacity of this water
-    float kE = erodibility(cut, sed, H, max(B.b, 0.0)) * (1.0 - 0.8 * max(veg, 0.0));
-    if (s < cap) {
-      float emax = 0.02 * uCell;
-      float e = emax * (1.0 - exp(-0.02 * kE * (cap - s) * uDt * M / emax));
-      float fromSed = min(sed, e); sed -= fromSed; cut += e - fromSed; s += e;
-    } else {
-      float dep = s * (1.0 - exp(-0.04 * uDt * M)); dep = min(dep, s - cap); sed += dep; s -= dep;
-    }
-  }
-  oA = vec4(cut, sed, d, max(s, 0.0));
-  float dS = (H < 0.0 && (oceanCell(B) || H < -8.0)) ? -1.0 : max(E.a, 0.0);
-  oE = vec4(ice, gw, clamp(veg, 0.0, 1.0), dS);
-}`;
-
-// pass 3: sediment transport, isotropic slumping, glaciers, groundwater seepage, then the render texture
-const SIM_TRANSPORT_FS = SIM_HEAD + `
-layout(location=0) out vec4 oA; layout(location=1) out vec4 oE; layout(location=2) out vec4 oR; layout(location=3) out vec4 oR2;
-void main(){
-  ivec2 c = ivec2(gl_FragCoord.xy) - uSlot, me = uSlot + c;
-  vec4 A = texelFetch(uA, me, 0), E = texelFetch(uE, me, 0), B = texelFetch(uBase, me, 0);
-  float cut = A.r, sed = A.g, d = A.b, ice = E.r, gw = E.g, veg = E.b;
-  // what gets drawn follows the real depth over about a second: water eases in and out instead of blinking
-  float dS = E.a; bool seaC = dS < 0.0;
-  if (!seaC) dS += (d - dS) * (1.0 - exp(-uDt / 1.2));
-  float M = uMorfac, hyd = min(M, 40.0);
-  // sediment rides with the flow (semi-Lagrangian)
-  vec2 vel = velAt(c, d);
-  vec2 p = clamp(vec2(c) - vel * uDt / uCell, vec2(-1.0), vec2(float(SN)));
-  ivec2 p0 = ivec2(floor(p)); vec2 f = p - vec2(p0);
-  float s = mix(mix(sedAt(p0), sedAt(p0 + ivec2(1, 0)), f.x), mix(sedAt(p0 + ivec2(0, 1)), sedAt(p0 + ivec2(1, 1)), f.x), f.y);
-  float H = B.r + B.a + sed - cut;
-  float loose = sed + max(0.0, SOIL - cut);
-  float net = 0.0, iceNet = 0.0, gwNet = 0.0, glacial = 0.0;
-  float Zi = H + ice, head = H - 2.0 + gw;
-  bool ok; ivec2 t;
-  for (int k = 0; k < 8; k++) {
-    ivec2 o = k == 0 ? ivec2(-1, 0) : k == 1 ? ivec2(1, 0) : k == 2 ? ivec2(0, -1) : k == 3 ? ivec2(0, 1) :
-              k == 4 ? ivec2(-1, -1) : k == 5 ? ivec2(1, -1) : k == 6 ? ivec2(-1, 1) : ivec2(1, 1);
-    t = nbTex8(c, o, ok); if (!ok) continue;
-    vec4 An = texelFetch(uA, t, 0), En = texelFetch(uE, t, 0), Bn = texelFetch(uBase, t, 0);
-    float dist = uCell * (k < 4 ? 1.0 : 1.41421), w = k < 4 ? 0.125 : 0.0884;   // 8 neighbours, distance-weighted: cones, not squares
-    float Hn = Bn.r + Bn.a + An.g - An.r;
-    float looseN = An.g + max(0.0, SOIL - An.r);
-    float tal = 0.7 * dist;                                                    // loose material rests at ~35 degrees
-    net += w * (min(max(Hn - H - tal, 0.0), looseN) - min(max(H - Hn - tal, 0.0), loose));
-    // bare rock cliffs only collapse where they are near vertical
-    float talR = 2.5 * dist;
-    net += 0.02 * w * (max(Hn - H - talR, 0.0) - max(H - Hn - talR, 0.0));
-    if (k < 4) {
-      // glaciers: very slow, very thick flow down the ice-surface slope (shallow-ice diffusion)
-      float Zn = Hn + En.r, ia = 0.5 * (ice + En.r);
-      float D = min(3e-9 * ia * ia * ia, 1e6);
-      iceNet += D * (Zn - Zi) / (uCell * uCell);
-      glacial += ia * abs(Zn - Zi) / uCell;
-      // groundwater seeps toward lower water tables
-      float headN = Hn - 2.0 + En.g;
-      gwNet += 2e-4 * clamp(headN - head, -1.0, 1.0) * (headN > head ? min(En.g, 1.0) : min(gw, 1.0));
-    }
-  }
-  // soil creep: loose ground slowly relaxes toward its neighbours' average (smooths cell-scale noise, like real hillslopes)
-  float creep = 0.0;
-  for (int k = 0; k < 4; k++) {
-    ivec2 o = k == 0 ? ivec2(-1, 0) : k == 1 ? ivec2(1, 0) : k == 2 ? ivec2(0, -1) : ivec2(0, 1);
-    t = nbTex(c + o, ok); if (!ok) continue;
-    creep += groundAt(t) - H;
-  }
-  // diffusion dh = D dt laplacian(h), D ~ 0.01 m^2/yr, coefficient capped for stability
-  float creepD = creep * min(0.2, 3e-10 * uDt * M / (uCell * uCell)) * step(0.01, loose);
-  float slump = clamp(net * min(1.0, 0.3 * uDt * M), -0.2 * uCell, 0.2 * uCell) + creepD;
-  if (slump > 0.0) sed += slump; else { float take = -slump, fs = min(sed, take); sed -= fs; cut += take - fs; }
-  float dIce = clamp(iceNet * uDt * M, -0.2 * max(ice, 0.0) - 1e-6, 0.05 * uCell);
-  ice = max(0.0, ice + dIce);
-  if (ice > 2.0) cut += min(2e-11 * glacial * uDt * M, 0.01 * uCell);        // glaciers grind their beds into U-shaped valleys
-  gw = max(0.0, gw + clamp(gwNet * uDt * hyd / uCell, -0.2, 0.2));
-  H = B.r + B.a + sed - cut;
-  oA = vec4(cut, sed, d, max(s, 0.0));
-  oE = vec4(ice, gw, veg, seaC ? -1.0 : dS);
-  // what the renderer reads (all smooth, so bilinear filtering never invents values):
-  //   R  = terrain change, cut depth, water depth (or -ice), +1 land / -1 open sea
-  //   R2 = loose sediment thickness, vegetation, flow velocity (u, v) in m/s
-  oR = vec4(B.a + sed - cut, cut, dS > 0.002 ? dS : -ice, seaC ? -1.0 : 1.0);
-  oR2 = vec4(sed, veg, seaC ? vec2(0.0) : vel);
-}`;
-
-// new chunk: clean state, but inherit ice cover from the coarser tier so glaciers do not pop in
-const SIM_INIT_FS = `
-uniform highp sampler2D uP; uniform highp sampler2D uBase; uniform vec2 uPSlot; uniform float uPAtlas; uniform vec3 uPMap; uniform ivec2 uSlot; uniform float uHasP; uniform float uCell;
-layout(location=0) out vec4 oA; layout(location=1) out vec4 oE;
-void main(){
-  vec4 B = texelFetch(uBase, ivec2(gl_FragCoord.xy), 0);
-  float spring = max(-B.b, 0.0);
-  // basins below sea level fill to sea level; river channels start running (about 2 m deep in mid-channel)
-  float H0 = B.r + B.a;
-  float fill = uCell <= 16.0 ? max((B.g < 1.5 && H0 < 0.0 && H0 > -8.0) ? -H0 : 0.0, 1.6 * spring) : 0.0;   // only cells fine enough to be honest about it
-  float ice = 0.0;
-  if (uHasP > 0.5) {
-    vec2 c = vec2(ivec2(gl_FragCoord.xy) - uSlot);
-    vec2 pc = clamp(uPMap.xy + (c + 0.5) * uPMap.z - 0.5, vec2(0.0), vec2(127.0));
-    ice = max(-texture(uP, (uPSlot + pc + 0.5) / uPAtlas).b, 0.0);   // parent stores water depth, or -ice
-  }
-  oA = vec4(0.0, 0.0, fill, 0.0);
-  oE = vec4(ice, spring > 0.1 ? 2.0 : 0.8, -1.0, 0.0);   // riverbeds start saturated
-}`;
-// keep a finer chunk sitting on its coarser tier: copy the coarse tier's total terrain change into B.a
-const SIM_SYNC_FS = `
-uniform highp sampler2D uP; uniform highp sampler2D uBase; uniform vec2 uPSlot; uniform float uPAtlas; uniform vec3 uPMap; uniform ivec2 uSlot;
-layout(location=0) out vec4 oB;
-void main(){
-  ivec2 ci = ivec2(gl_FragCoord.xy) - uSlot;
-  vec2 pc = clamp(uPMap.xy + (vec2(ci) + 0.5) * uPMap.z - 0.5, vec2(0.0), vec2(127.0));
-  vec4 b = texelFetch(uBase, uSlot + ci, 0);
-  oB = vec4(b.rgb, texture(uP, (uPSlot + pc + 0.5) / uPAtlas).r);
-}`;
-
-// simulated land water, drawn with the terrain patch meshes lifted to ground + depth
-const SIMWATER_VS = `
-layout(location=0) in vec3 aPos;
-layout(location=1) in vec3 aWrap;
-layout(location=2) in vec3 aMorph;
-layout(location=3) in float aH;
-uniform vec3 uOffset; uniform vec3 uCamP; uniform vec2 uMorph;
-out vec3 vRel; out vec3 vWrap; out vec3 vPlanet; out float vD; out float vSpd; out vec3 vFlow; out float vFade;
-void main(){
-  vec3 rel = aPos + uOffset;
-  float m = smoothstep(uMorph.x, uMorph.y, length(rel));
-  rel += aMorph * m;
-  vec3 up = normalize(rel + uCamP);
-  vec4 sim = simAt(up), sim2 = simAt2(up);
-  float d = max(sim.b, 0.0);
-  if (gl_VertexID >= 1089 || sim.a < 0.0 || uSimOn < 0.5) d = 0.0;          // skirts, and the open sea (the ocean mesh draws that)
-  rel += up * (sim.r + d + 0.02);                                            // on the (eroded) ground, lifted by the water depth
-  vec3 Tu = normalize(uSimF[1] - up * dot(uSimF[1], up)), Tv = normalize(uSimF[2] - up * dot(uSimF[2], up));
-  vec3 fw = Tu * sim2.z + Tv * sim2.w;
-  float spd = length(fw);
-  vFlow = spd > 4.0 ? fw * (4.0 / spd) : fw;
-  vFade = 1.0 - smoothstep(110.0 * uSimCell, 180.0 * uSimCell, length(rel));   // past ~2 cells per vertex the mesh can't show it
-  vRel = rel; vWrap = aWrap + aMorph * m; vPlanet = rel + uCamP; vD = d; vSpd = spd;
-  gl_Position = project(rel);
-}`;
-const SIMWATER_FS = `
-in vec3 vRel; in vec3 vWrap; in vec3 vPlanet; in float vD; in float vSpd; in vec3 vFlow; in float vFade;
-out vec4 fragColor;
-void main(){
-  if (vD < 0.035 || vFade < 0.01) discard;
-  float dist = length(vRel), r = length(vPlanet);
-  vec3 up = vPlanet / r, V = -vRel / max(dist, 1e-3);
-  float tm = mod(uTime, 4000.0), fl = clamp(vSpd / 3.0, 0.0, 1.0);
-  // flow map: two ripple layers slide downstream, each fading out as it resets, so the water visibly runs
-  float f0 = fract(tm * 0.4), f1 = fract(tm * 0.4 + 0.5), w0 = abs(1.0 - 2.0 * f0);
-  vec3 drift = vec3(tm * 0.04, 0.0, tm * 0.03);
-  vec3 q0 = vWrap - vFlow * f0 * 2.5 + drift, q1 = vWrap - vFlow * f1 * 2.5 + drift + 7.3;
-  float rip = mix(pnoise(q1 / 2.0, 1024.0) * 0.6 + pnoise(q1 / 0.5, 4096.0) * 0.4,
-                  pnoise(q0 / 2.0, 1024.0) * 0.6 + pnoise(q0 / 0.5, 4096.0) * 0.4, w0);
-  vec3 N = bumpN(vRel, up, rip * (0.03 + 0.08 * fl) * (1.0 - smoothstep(30.0, 250.0, dist)));
-  float mus = dot(up, uSunDir);
-  vec3 Ts = sunTrans(r, mus), irr = irrLUT(r, mus);
-  float cs = cloudShadow(vPlanet);
-  vec3 light = Ts * max(mus, 0.0) * cs + irr;
-  float ndv = max(dot(N, V), 0.0), F = 0.02 + 0.98 * pow(1.0 - ndv, 5.0);
-  vec3 Rf = reflect(-V, N); Rf = normalize(Rf + up * max(0.0, 0.03 - dot(Rf, up)));
-  vec3 sky = skyRadiance(vPlanet + up * 2.0, Rf, 4) * mix(1.0, cs, 0.5);
-  vec3 absorb = exp(-vec3(0.45, 0.09, 0.06) * vD * 2.0);
-  vec3 body = (vec3(0.004, 0.009, 0.011) * (1.0 - absorb.g) + vec3(0.10, 0.085, 0.06) * absorb) * light / PI;
-  vec3 Hh = normalize(V + uSunDir);
-  float spec = pow(max(dot(N, Hh), 0.0), 400.0) * 3.0 * max(mus, 0.0);
-  float foam = smoothstep(2.5, 5.0, vSpd) * smoothstep(0.35, 0.6, mix(pnoise(q1 / 0.5 + 3.0, 4096.0), pnoise(q0 / 0.5 + 3.0, 4096.0), w0));
-  vec3 c = mix(body, sky, F) + Ts * cs * spec;
-  c = mix(c, vec3(0.75) * light / PI, foam * 0.7);
-  fragColor = vec4(c, smoothstep(0.035, 0.12, vD) * vFade);
-}`;
-
-const QUERY_VS = `
-layout(location=0) in vec3 aPos;
-layout(location=2) in vec3 aMorph;
-uniform vec3 uOffset; uniform vec3 uCamP; uniform vec2 uMorph;
-invariant gl_Position;
-out vec3 vPlanet;
-void main(){
-  vec3 rel = aPos + uOffset;
-  float m = smoothstep(uMorph.x, uMorph.y, length(rel));
-  rel += aMorph * m;
-  vec3 up = normalize(rel + uCamP);
-  rel += up * simAt(up).r;
-  vPlanet = rel + uCamP;
-  gl_Position = project(rel);
-}`;
-const QUERY_FS = `
-in vec3 vPlanet;
-uniform mat3 uQF; uniform vec3 uQRect;       // the chunk's cube face and its (u0, v0, size) on that face
-out vec4 fragColor;
-void main(){
-  vec3 dir = normalize(vPlanet);
-  float a = dot(dir, uQF[0]);
-  vec2 uv = vec2(atan(dot(dir, uQF[1]) / a), atan(dot(dir, uQF[2]) / a)) * (4.0 / PI);
-  if (a <= 0.0 || any(lessThan(uv, uQRect.xy)) || any(greaterThanEqual(uv, uQRect.xy + uQRect.z))) discard;
-  fragColor = vec4(0.0);
-}`;
-const BOX_VS = `
-layout(location=0) in float aCorner;
-uniform vec3 uCorner[8];
-void main(){ gl_Position = project(uCorner[int(aCorner + 0.5)]); }`;
-const BOX_FS = `
-out vec4 fragColor;
-void main(){ fragColor = vec4(0.0); }`;
-
-// ---------------------------------------------------------------------
 // 5. WEBGL2 SETUP
 // ---------------------------------------------------------------------
 const canvas = document.getElementById('c');
@@ -2093,7 +1700,7 @@ function makeProgram(vsBody, fsBody, samplers, defs){
   const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
   for (let i = 0; i < n; i++) { const info = gl.getActiveUniform(p, i); u[info.name.replace(/\[0\]$/, '')] = gl.getUniformLocation(p, info.name); }
   gl.useProgram(p);
-  const units = { uTrans:0, uMS:1, uIrr:2, uClouds:3, uScene:4, uDepth:5, uTex:6, uAtlas:7, uAtlasN:8, uSimR:9, uSimR2:10, ...(samplers || {}) };
+  const units = { uTrans:0, uMS:1, uIrr:2, uClouds:3, uScene:4, uDepth:5, uTex:6, uAtlas:7, uAtlasN:8, ...(samplers || {}) };
   for (const k in units) if (u[k]) gl.uniform1i(u[k], units[k]);
   return { p, u };
 }
@@ -2404,6 +2011,15 @@ function uploadNode(n, r){
     n.wibo = gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, n.wibo); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, r.waterIdx, gl.STATIC_DRAW);
     n.wcount = r.waterIdx.length; n.winner = r.waterInner;
   }
+  if (r.rwater) {
+    n.rvao = gl.createVertexArray(); gl.bindVertexArray(n.rvao);
+    n.rvbo = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, n.rvbo); gl.bufferData(gl.ARRAY_BUFFER, r.rwater, gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 32, 0);
+    gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 32, 12);
+    gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 2, gl.FLOAT, false, 32, 24);
+    n.ribo = gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, n.ribo); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, r.rwaterIdx, gl.STATIC_DRAW);
+    n.rcount = r.rwaterIdx.length;
+  }
   const instAttribs = (vbo, start) => {
     gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
     gl.enableVertexAttribArray(3); gl.vertexAttribPointer(3, 4, gl.FLOAT, false, 32, start * 32); gl.vertexAttribDivisor(3, 1);
@@ -2455,11 +2071,12 @@ function freeNode(n){
   if (n.state === 2) {
     gl.deleteVertexArray(n.vao); gl.deleteBuffer(n.vbo);
     if (n.wvao) { gl.deleteVertexArray(n.wvao); gl.deleteBuffer(n.wvbo); gl.deleteBuffer(n.wibo); }
+    if (n.rvao) { gl.deleteVertexArray(n.rvao); gl.deleteBuffer(n.rvbo); gl.deleteBuffer(n.ribo); }
     if (n.tvaos) { for (const l of n.tvaos) for (const v of l) if (v) gl.deleteVertexArray(v); for (const v of n.svaos) if (v) gl.deleteVertexArray(v); gl.deleteBuffer(n.tvbo); }
     if (n.gvao) { gl.deleteVertexArray(n.gvao); gl.deleteBuffer(n.gvbo); }
     QT.resident--;
   }
-  n.vao = n.wvao = n.tvaos = n.svaos = n.gvao = null; n.trees = null; n.state = 0; n.dead = true;
+  n.vao = n.wvao = n.rvao = n.tvaos = n.svaos = n.gvao = null; n.trees = null; n.state = 0; n.dead = true;
 }
 
 // ---- worker pool (falls back to a time-sliced main thread if workers are blocked) ----
@@ -2468,16 +2085,15 @@ function initWorkers(){
   const n = clamp((navigator.hardwareConcurrency || 4) - 2, 1, 8);
   const src = '"use strict";\nconst TerrainModule = ' + TerrainModule.toString() + ';\nconst T = TerrainModule();\n' +
     'onmessage = (e) => { const j = e.data; if (j.ping) { postMessage({ pong: 1 }); return; }\n' +
-    '  if (j.sim) { const b = T.simBase(j.face, j.level, j.x, j.y, j.n); postMessage({ id: j.id, sim: 1, r: b }, [b.buffer]); return; }\n' +
     '  const r = T.buildPatch(j.face, j.level, j.x, j.y); const tr = [r.buf];\n' +
-    '  if (r.water) tr.push(r.water.buffer, r.waterIdx.buffer); if (r.trees) tr.push(r.trees.buffer); if (r.grass) tr.push(r.grass.buffer);\n' +
+    '  if (r.water) tr.push(r.water.buffer, r.waterIdx.buffer); if (r.rwater) tr.push(r.rwater.buffer, r.rwaterIdx.buffer); if (r.trees) tr.push(r.trees.buffer); if (r.grass) tr.push(r.grass.buffer);\n' +
     '  postMessage({ id: j.id, r }, tr); };';
   try {
     const url = URL.createObjectURL(new Blob([src], { type: 'text/javascript' }));
     for (let i = 0; i < n; i++) {
       const w = new Worker(url); w.busy = 0; w.alive = false; w.dead = false;
       w.onmessage = (e) => onWorkerMsg(w, e.data);
-      w.onerror = (e) => { if (e.preventDefault) e.preventDefault(); w.dead = true; const lostSim = []; for (const [id, j] of POOL.jobs) if (j.w === w) { if (j.node && j.node.state === 1) j.node.state = 0; if (j.sim) lostSim.push(j.sim); POOL.jobs.delete(id); } for (const c of lostSim) sendSimJob(c); };
+      w.onerror = (e) => { if (e.preventDefault) e.preventDefault(); w.dead = true; for (const [id, j] of POOL.jobs) if (j.w === w) { if (j.node.state === 1) j.node.state = 0; POOL.jobs.delete(id); } };
       w.postMessage({ ping: 1 });
       POOL.workers.push(w);
     }
@@ -2488,9 +2104,8 @@ function onWorkerMsg(w, m){
   w.busy--;
   const job = POOL.jobs.get(m.id); POOL.jobs.delete(m.id);
   if (!job) return;
-  if (job.sim) simBaseArrived(job.sim, m.r);
   const n = job.node;
-  if (n && !n.dead && n.state === 1) uploadNode(n, m.r);
+  if (!n.dead && n.state === 1) uploadNode(n, m.r);
   // pull the next job immediately so streaming speed doesn't depend on frame rate
   while (POOL.queue.length && w.busy < 3) {
     const nx = POOL.queue.shift();
@@ -2578,7 +2193,7 @@ function selectLOD(camP, frus, collect){
     if (n.state !== 2) { if (n.state === 0) QT.requests.push({ node: n, pri: n.level * 0.25 + dist / n.arc }); return; }
     if (collect && inView) {
       QT.drawList.push({ n, d: cd });
-      if (n.wvao) QT.waterList.push({ n, d: cd });
+      if (n.wvao || n.rvao) QT.waterList.push({ n, d: cd });
     }
   };
   for (const r of QT.roots) visit(r);
@@ -2597,439 +2212,9 @@ function evictOld(){
 function pendingCount(){ let c = 0; for (const r of QT.requests) if (r.node.state !== 2) c++; return c + POOL.jobs.size; }
 
 // ---------------------------------------------------------------------
-// 7b. LANDSCAPE EVOLUTION (Terra Firma style): chunks, tiers, visibility, catch-up, geological time
-//
-// Four tiers of 128x128-cell chunks, finest first. A chunk only steps while it is visible
-// (inside the view, above the horizon, and not hidden behind terrain per GPU occlusion queries).
-// It remembers the game time it was last brought up to date; when it's next updated it catches
-// up the whole gap at once: water moves with a stable time step, and erosion is multiplied by the
-// "morphological acceleration factor" (how much longer the gap was than the water steps covered),
-// the same trick long-term river models use. Faster game time (T) just makes that gap bigger.
-// ---------------------------------------------------------------------
-const SIM_N = 128;
-const SIM_TIERS = [
-  { L: 13, atlas: 512, radius: 260 },      // ~1 m cells: rills, puddles, bank collapses at your feet
-  { L: 10, atlas: 512, radius: 2100 },     // ~7.6 m cells: creeks, gullies, small landslides
-  { L: 6, atlas: 512, radius: 32000 },     // ~122 m cells: valleys, floodplains, deltas
-  { L: 2, atlas: 768, radius: 4.0e6 },     // ~2 km cells: continents, ice caps, mountain belts (what you watch from orbit)
-];
-const SIM = { faceM: [], on: false, tiers: [], chunks: new Map(), saved: new Map(), stepBudget: 30, stats: { resident: 0, visible: 0, updated: 0, steps: 0, maxDebt: 0, morfac: 1 }, prog: {} };
-const simKey = (ti, f, x, y) => ti * 1e9 + f * 1.5e8 + x * 12000 + y;
-
-function simInit(){
-  if (!EXT_CBF) { console.warn('Landscape simulation needs float render targets; disabled.'); return; }
-  const linear = !!gl.getExtension('OES_texture_float_linear');
-  const mkTex = (n, filt) => { const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t); gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA32F, n, n);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filt); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filt);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; };
-  const mkFbo = (...ts) => { const f = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, f);
-    ts.forEach((t, i) => gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0 + i, gl.TEXTURE_2D, t, 0));
-    gl.drawBuffers(ts.map((_, i) => gl.COLOR_ATTACHMENT0 + i));
-    if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) throw new Error('sim fbo'); return f; };
-  try {
-    for (let ti = 0; ti < SIM_TIERS.length; ti++) {
-      const T = SIM_TIERS[ti], n = T.atlas, per = n / SIM_N;
-      const tier = { ...T, ti, per, slots: per * per, free: [], owner: [], chunkArc: TERRAIN.FACE_ARC / (1 << T.L) };
-      for (const k of ['A', 'E', 'F', 'B', 'TA', 'TE']) tier[k] = mkTex(n, gl.NEAREST);
-      tier.R = mkTex(n, linear ? gl.LINEAR : gl.NEAREST); tier.R2 = mkTex(n, linear ? gl.LINEAR : gl.NEAREST);
-      tier.cell = tier.chunkArc / SIM_N; tier.dtStable = 0.15 * tier.cell;
-      for (const k of ['A', 'E', 'F', 'B', 'R', 'R2', 'TA', 'TE']) { tier['f' + k] = mkFbo(tier[k]); gl.clearBufferfv(gl.COLOR, 0, [0, 0, 0, 0]); }
-      tier.fMRT2 = mkFbo(tier.TA, tier.TE); tier.fMRT4 = mkFbo(tier.TA, tier.TE, tier.R, tier.R2);
-      for (let q = tier.slots - 1; q >= 0; q--) tier.free.push(q);
-      SIM.tiers.push(tier);
-    }
-  } catch (e) { console.warn('Landscape simulation unavailable:', e); gl.bindFramebuffer(gl.FRAMEBUFFER, null); SIM.tiers = []; return; }
-  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-  const su = { uA: 9, uE: 10, uF: 11, uBase: 12, uP: 13 };
-  SIM.prog.flux = makeProgram(FS_TRI_VS, SIM_FLUX_FS, su);
-  SIM.prog.hydro = makeProgram(FS_TRI_VS, SIM_HYDRO_FS, su);
-  SIM.prog.transport = makeProgram(FS_TRI_VS, SIM_TRANSPORT_FS, su);
-  SIM.prog.init = makeProgram(FS_TRI_VS, SIM_INIT_FS, su);
-  SIM.prog.sync = makeProgram(FS_TRI_VS, SIM_SYNC_FS, su);
-  SIM.prog.q = makeProgram(QUERY_VS, QUERY_FS);
-  PROG.simWater = makeProgram(SIMWATER_VS, SIMWATER_FS);
-  const idx = [0,1,2, 0,2,3, 4,6,5, 4,7,6, 0,4,5, 0,5,1, 1,5,6, 1,6,2, 2,6,7, 2,7,3, 3,7,4, 3,4,0];
-  SIM.boxVAO = gl.createVertexArray(); gl.bindVertexArray(SIM.boxVAO);
-  const vb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vb); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(idx), gl.STATIC_DRAW);
-  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 1, gl.FLOAT, false, 4, 0);
-  gl.bindVertexArray(null);
-  SIM.on = true;
-}
-function slotOrigin(tier, slot){ return [(slot % tier.per) * SIM_N, Math.floor(slot / tier.per) * SIM_N]; }
-
-function simChunk(ti, face, x, y){
-  const key = simKey(ti, face, x, y);
-  let c = SIM.chunks.get(key);
-  if (c) return c;
-  const T = SIM_TIERS[ti], S = 2 / (1 << T.L), u0 = -1 + x * S, v0 = -1 + y * S;
-  const corners = [[u0, v0], [u0 + S, v0], [u0 + S, v0 + S], [u0, v0 + S]].map(([u, v]) => TERRAIN.faceDir(face, u, v, [0, 0, 0]));
-  const cdir = TERRAIN.faceDir(face, u0 + S / 2, v0 + S / 2, [0, 0, 0]);
-  c = { key, ti, face, x, y, u0, v0, S, corners, cdir, minH: -200, maxH: 3000, slot: -1, state: 0, simT: 0, lastUpd: 0, want: 0, dist: 0,
-        version: 0, pVer: -1, vis: false, qVis: true, query: null, qPending: false, cosC: Math.min(...corners.map(k => V3.dot(k, cdir))) };
-  simBounds(c);
-  SIM.chunks.set(key, c);
-  return c;
-}
-function simBounds(c){
-  const top = (R + c.maxH + 60) / c.cosC;
-  c.center = V3.mul(c.cdir, R + (c.minH + c.maxH) / 2);
-  c.radius = 0;
-  for (const k of c.corners) for (const r of [R + c.minH - 5, top]) c.radius = Math.max(c.radius, V3.len(V3.sub(V3.mul(k, r), c.center)));
-  c.hull = [];
-  for (const r of [R + c.minH - 5, top]) for (const k of c.corners) c.hull.push(V3.mul(k, r));
-}
-function simNeighbors(c){
-  const n = 1 << SIM_TIERS[c.ti].L, out = [];
-  for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
-    const x = c.x + dx, y = c.y + dy; let o = [-1, -1];
-    if (x >= 0 && y >= 0 && x < n && y < n) {
-      const nb = SIM.chunks.get(simKey(c.ti, c.face, x, y));
-      if (nb && nb.state === 2 && nb.slot >= 0) o = slotOrigin(SIM.tiers[c.ti], nb.slot);
-    }
-    out.push(o[0], o[1]);
-  }
-  return new Int32Array(out);
-}
-// the next coarser tier's ready chunk that covers this one
-function simParent(c){
-  for (let pi = c.ti + 1; pi < SIM.tiers.length; pi++) {
-    const sh = SIM_TIERS[c.ti].L - SIM_TIERS[pi].L, p = SIM.chunks.get(simKey(pi, c.face, c.x >> sh, c.y >> sh));
-    if (p && p.state === 2) return { p, sh };
-  }
-  return null;
-}
-
-// ---- shared pass plumbing ----
-function simBindState(tier){
-  const u = [[9, tier.A], [10, tier.E], [11, tier.F], [12, tier.B]];
-  for (const [unit, t] of u) { gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t); }
-  gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_CUBE_MAP, TEX.clouds);
-}
-function simBlit(src, dst, ox, oy){
-  gl.bindFramebuffer(gl.READ_FRAMEBUFFER, src); gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, dst);
-  gl.blitFramebuffer(ox, oy, ox + SIM_N, oy + SIM_N, ox, oy, ox + SIM_N, oy + SIM_N, gl.COLOR_BUFFER_BIT, gl.NEAREST);
-}
-function simParentUniforms(P, c, parent){
-  const pt = SIM.tiers[parent.p.ti], [px, py] = slotOrigin(pt, parent.p.slot), k = 1 << parent.sh, sc = 1 / k;
-  gl.activeTexture(gl.TEXTURE13); gl.bindTexture(gl.TEXTURE_2D, pt.R);
-  gl.uniform2f(L_(P, 'uPSlot'), px, py); gl.uniform1f(L_(P, 'uPAtlas'), pt.atlas);
-  gl.uniform3f(L_(P, 'uPMap'), (c.x & (k - 1)) * SIM_N * sc, (c.y & (k - 1)) * SIM_N * sc, sc);
-}
-// keep a finer chunk sitting on its coarser tier's evolving surface (copy the coarse terrain change into B.a)
-function simSync(c){
-  const parent = simParent(c);
-  if (!parent || parent.p.version === c.pVer) return;
-  const tier = SIM.tiers[c.ti], [ox, oy] = slotOrigin(tier, c.slot), P = SIM.prog.sync;
-  simBindState(tier);
-  gl.bindFramebuffer(gl.FRAMEBUFFER, tier.fTA); gl.viewport(ox, oy, SIM_N, SIM_N); gl.useProgram(P.p);
-  gl.uniform2i(L_(P, 'uSlot'), ox, oy); simParentUniforms(P, c, parent);
-  gl.bindVertexArray(EMPTY_VAO); gl.drawArrays(gl.TRIANGLES, 0, 3);
-  simBlit(tier.fTA, tier.fB, ox, oy);
-  c.pVer = parent.p.version;
-}
-
-// ---- asynchronous readback: copy into a pixel-pack buffer now, collect it once the GPU has finished ----
-const SIMRB = [];
-function readAsync(fbo, x, y, w, h, cb){
-  const bytes = w * h * 16, pbo = gl.createBuffer();
-  gl.bindBuffer(gl.PIXEL_PACK_BUFFER, pbo); gl.bufferData(gl.PIXEL_PACK_BUFFER, bytes, gl.STREAM_READ);
-  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo); gl.readPixels(x, y, w, h, gl.RGBA, gl.FLOAT, 0);
-  gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null); gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-  SIMRB.push({ pbo, bytes, cb, sync: gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0) });
-  gl.flush();
-}
-function pollReads(){
-  for (let i = SIMRB.length - 1; i >= 0; i--) {
-    const r = SIMRB[i];
-    if (gl.clientWaitSync(r.sync, 0, 0) === gl.TIMEOUT_EXPIRED) continue;
-    const out = new Float32Array(r.bytes / 4);
-    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, r.pbo); gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, out); gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
-    gl.deleteSync(r.sync); gl.deleteBuffer(r.pbo); SIMRB.splice(i, 1);
-    r.cb(out);
-  }
-}
-
-// ---- slots: allocate, save on eviction, restore on return ----
-function simEvict(c){
-  const tier = SIM.tiers[c.ti];
-  if (c.state === 2) {
-    // the copies are queued before anything can overwrite the slot, so the slot is free to reuse right away
-    const entry = { a: null, e: null, simT: c.simT }, key = c.key;
-    const done = () => { if (!entry.a || !entry.e) return; SIM.saved.delete(key); SIM.saved.set(key, entry); if (SIM.saved.size > 240) SIM.saved.delete(SIM.saved.keys().next().value); };
-    readAsync(tier.fA, c.ox, c.oy, SIM_N, SIM_N, (d) => { entry.a = d; done(); });
-    readAsync(tier.fE, c.ox, c.oy, SIM_N, SIM_N, (d) => { entry.e = d; done(); });
-  }
-  tier.owner[c.slot] = null; tier.free.push(c.slot);
-  c.slot = -1; c.state = 0; c.pVer = -1;
-  if (c.query) { gl.deleteQuery(c.query); c.query = null; c.qPending = false; }
-}
-function simAlloc(c){
-  const tier = SIM.tiers[c.ti];
-  if (!tier.free.length) {
-    let worst = null;
-    for (const o of tier.owner) if (o && o.want !== QT.frame && o.state !== 1 && (!worst || o.dist > worst.dist)) worst = o;
-    if (!worst) return false;
-    simEvict(worst);
-  }
-  c.slot = tier.free.pop(); tier.owner[c.slot] = c; c.state = 1;
-  [c.ox, c.oy] = slotOrigin(tier, c.slot);
-  sendSimJob(c);
-  return true;
-}
-function sendSimJob(c){
-  const alive = aliveWorkers();
-  const job = { sim: 1, face: c.face, level: SIM_TIERS[c.ti].L, x: c.x, y: c.y, n: SIM_N };
-  if (alive.length) {
-    let w = alive[0]; for (const a of alive) if (a.busy < w.busy) w = a;
-    const id = POOL.nextId++; POOL.jobs.set(id, { sim: c, w }); w.busy++;
-    w.postMessage({ id, ...job });
-  } else simBaseArrived(c, TERRAIN.simBase(job.face, job.level, job.x, job.y, SIM_N));
-}
-function simBaseArrived(c, base){
-  if (c.state !== 1 || c.slot < 0) return;
-  const tier = SIM.tiers[c.ti], [ox, oy] = slotOrigin(tier, c.slot);
-  let mn = 1e9, mx = -1e9;
-  for (let i = 0; i < base.length; i += 4) { if (base[i] < mn) mn = base[i]; if (base[i] > mx) mx = base[i]; }
-  c.minH = mn - 200; c.maxH = mx + 200; simBounds(c);
-  gl.bindTexture(gl.TEXTURE_2D, tier.B); gl.texSubImage2D(gl.TEXTURE_2D, 0, ox, oy, SIM_N, SIM_N, gl.RGBA, gl.FLOAT, base);
-  gl.bindFramebuffer(gl.FRAMEBUFFER, tier.fF); gl.enable(gl.SCISSOR_TEST); gl.scissor(ox, oy, SIM_N, SIM_N); gl.clearBufferfv(gl.COLOR, 0, [0, 0, 0, 0]); gl.disable(gl.SCISSOR_TEST);
-  gl.disable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE); gl.disable(gl.BLEND);
-  const saved = SIM.saved.get(c.key), parent = simParent(c);
-  if (saved) {                                    // exactly as it was left; the missed time is caught up on the next update
-    gl.bindTexture(gl.TEXTURE_2D, tier.A); gl.texSubImage2D(gl.TEXTURE_2D, 0, ox, oy, SIM_N, SIM_N, gl.RGBA, gl.FLOAT, saved.a);
-    gl.bindTexture(gl.TEXTURE_2D, tier.E); gl.texSubImage2D(gl.TEXTURE_2D, 0, ox, oy, SIM_N, SIM_N, gl.RGBA, gl.FLOAT, saved.e);
-    c.simT = saved.simT;
-  } else {
-    const P = SIM.prog.init;
-    simBindState(tier);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, tier.fMRT2); gl.viewport(ox, oy, SIM_N, SIM_N); gl.useProgram(P.p);
-    gl.uniform2i(L_(P, 'uSlot'), ox, oy); gl.uniform1f(L_(P, 'uHasP'), parent ? 1 : 0); gl.uniform1f(L_(P, 'uCell'), tier.cell);
-    gl.activeTexture(gl.TEXTURE13); gl.bindTexture(gl.TEXTURE_2D, null);
-    if (parent) simParentUniforms(P, c, parent);
-    gl.bindVertexArray(EMPTY_VAO); gl.drawArrays(gl.TRIANGLES, 0, 3);
-    simBlit(tier.fTA, tier.fA, ox, oy); simBlit(tier.fTE, tier.fE, ox, oy);
-    c.simT = parent ? parent.p.simT : GAME.time;
-  }
-  c.state = 2; c.pVer = -1;
-  simSync(c);
-  simStep(c, 1e-3, 1);                            // one tiny step fills the render texture
-  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-}
-
-// ---- one step for one chunk: pipes -> climate/hydrology/erosion -> transport/slumping/glaciers (+ render texture) ----
-function simStep(c, dt, morfac){
-  const tier = SIM.tiers[c.ti], [ox, oy] = slotOrigin(tier, c.slot), nb = simNeighbors(c);
-  const faceM = SIM.faceM[c.face] || (SIM.faceM[c.face] = new Float32Array(TERRAIN.FACES[c.face]));
-  simBindState(tier);
-  gl.bindVertexArray(EMPTY_VAO);
-  const pass = (P, fbo) => {
-    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo); gl.viewport(ox, oy, SIM_N, SIM_N);
-    gl.useProgram(P.p);
-    gl.uniform2i(L_(P, 'uSlot'), ox, oy); gl.uniform2iv(L_(P, 'uNb'), nb);
-    gl.uniform1f(L_(P, 'uCell'), tier.cell); gl.uniform1f(L_(P, 'uDt'), dt); gl.uniform1f(L_(P, 'uMorfac'), morfac);
-    gl.uniformMatrix3fv(L_(P, 'uSimF'), false, faceM); gl.uniform4f(L_(P, 'uSimChunk'), c.u0, c.v0, c.S, 0);
-    gl.uniformMatrix3fv(L_(P, 'uCloudRot'), false, SIM.cloudRot); gl.uniform1f(L_(P, 'uCloudAmt'), GAME.cloudAmt);
-    gl.uniform3fv(L_(P, 'uSunDir'), SIM.sun);
-    gl.drawArrays(gl.TRIANGLES, 0, 3);
-  };
-  pass(SIM.prog.flux, tier.fTA); simBlit(tier.fTA, tier.fF, ox, oy);
-  pass(SIM.prog.hydro, tier.fMRT2); simBlit(tier.fTA, tier.fA, ox, oy); simBlit(tier.fTE, tier.fE, ox, oy);
-  pass(SIM.prog.transport, tier.fMRT4); simBlit(tier.fTA, tier.fA, ox, oy); simBlit(tier.fTE, tier.fE, ox, oy);
-  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-  c.version++;
-}
-
-// ---- per-frame scheduling ----
-function simFrame(eye, frus){
-  if (!SIM.on) return;
-  pollReads();
-  const st = SIM.stats; st.visible = st.updated = st.steps = 0; st.maxDebt = 0; st.morfac = 1;
-  const GT = GAME.time, frame = QT.frame;   // the world's own clock: no geological speed-up
-  SIM.sun = new Float32Array(SUN_P);
-  const camR = V3.len(eye), eyeDir = V3.mul(eye, 1 / camR);
-  const occR = R - 5600, horizonCam = camR > occR ? Math.sqrt(camR * camR - occR * occR) : 0;
-  const fu = TERRAIN.dirToFace(eyeDir[0], eyeDir[1], eyeDir[2]);
-  const cr = GAME.rt * 1.2e-5 + GAME.time * 1.5e-5, cc = Math.cos(cr), cs = Math.sin(cr);
-  SIM.cloudRot = new Float32Array([cc, 0, -cs, 0, 1, 0, cs, 0, cc]);
-  // 1. collect query results from earlier frames
-  for (const tier of SIM.tiers) for (const c of tier.owner) {
-    if (c && c.qPending && gl.getQueryParameter(c.query, gl.QUERY_RESULT_AVAILABLE)) { c.qVis = gl.getQueryParameter(c.query, gl.QUERY_RESULT) > 0; c.qPending = false; }
-  }
-  // 2. which chunks does each tier want?
-  const wanted = [];
-  for (let ti = 0; ti < SIM_TIERS.length; ti++) {
-    const T = SIM_TIERS[ti], n = 1 << T.L, S = 2 / n, arc = TERRAIN.FACE_ARC / n, list = [];
-    const consider = (face, x, y) => {
-      const c = simChunk(ti, face, x, y);
-      const d = Math.max(0, V3.len(V3.sub(c.center, eye)) - c.radius);
-      if (d > T.radius && !(c.slot >= 0 && d < T.radius * 1.25)) return;
-      if (horizonCam > 0) { const top = R + c.maxH, hn = top > occR ? Math.sqrt(top * top - occR * occR) : 0; if (d > horizonCam + hn) return; }
-      c.dist = d; list.push(c);
-    };
-    if (n <= 8) { for (let f = 0; f < 6; f++) for (let x = 0; x < n; x++) for (let y = 0; y < n; y++) consider(f, x, y); }
-    else if (fu) {
-      const cx = Math.floor((fu[1] + 1) / S), cy = Math.floor((fu[2] + 1) / S), k = Math.ceil(T.radius / arc) + 1;
-      for (let x = Math.max(0, cx - k); x <= Math.min(n - 1, cx + k); x++) for (let y = Math.max(0, cy - k); y <= Math.min(n - 1, cy + k); y++) consider(fu[0], x, y);
-    }
-    list.sort((a, b) => a.dist - b.dist);
-    const cap = SIM.tiers[ti].slots;
-    for (let i = 0; i < Math.min(list.length, cap); i++) { list[i].want = frame; wanted.push(list[i]); }
-  }
-  // 3. give wanted chunks a slot (closest first), which starts their base-height job
-  let allocs = 0;
-  for (const c of wanted) if (c.slot < 0 && allocs < 6) { if (simAlloc(c)) allocs++; }
-  // 4. visibility, CHC++ style (temporal + spatial coherence) so occlusion never shows:
-  //    - prediction: a widened frustum pre-updates chunks just before they turn into view
-  //    - hysteresis: a chunk stays active for ~0.75 s after it was last seen
-  //    - spatial coherence: the neighbours of visible chunks keep up too, so no seams between fresh and stale ground
-  const wx = Math.min(Math.acos(frus.cx) + 0.35, 1.5), wy = Math.min(Math.acos(frus.cy) + 0.35, 1.5);
-  const wcx = Math.cos(wx), wsx = Math.sin(wx), wcy = Math.cos(wy), wsy = Math.sin(wy);
-  const seen = new Set();
-  for (const c of wanted) {
-    if (c.state !== 2) continue;
-    const dx = c.center[0] - eye[0], dy = c.center[1] - eye[1], dz = c.center[2] - eye[2];
-    const x = dx * frus.r[0] + dy * frus.r[1] + dz * frus.r[2], y = dx * frus.u[0] + dy * frus.u[1] + dz * frus.u[2], z = dx * frus.f[0] + dy * frus.f[1] + dz * frus.f[2];
-    const b = c.radius, inside = Math.hypot(dx, dy, dz) < b;
-    const out = (cx, sx, cy, sy) => z < -b || x * cx - z * sx > b || -x * cx - z * sx > b || y * cy - z * sy > b || -y * cy - z * sy > b;
-    c.inFrustum = inside || !out(frus.cx, frus.sx, frus.cy, frus.sy);
-    const inWide = inside || !out(wcx, wsx, wcy, wsy);
-    c.inside = inside;
-    // in the true frustum the occlusion query decides; in the margin we predict "visible"
-    const drawn = c.drawnFrame === frame - 1;
-    if ((drawn && c.qVis) || (inWide && !c.inFrustum)) { c.lastSeen = frame; seen.add(c.key); }
-  }
-  const cand = [];
-  for (const c of wanted) {
-    if (c.state !== 2) continue;
-    let active = frame - (c.lastSeen || -999) < 45, weight = 1;
-    if (!active) {
-      const n = 1 << SIM_TIERS[c.ti].L;
-      for (const [ddx, ddy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
-        const nx = c.x + ddx, ny = c.y + ddy;
-        if (nx >= 0 && ny >= 0 && nx < n && ny < n && seen.has(simKey(c.ti, c.face, nx, ny))) { active = true; weight = 0.5; break; }
-      }
-    }
-    c.vis = active;
-    if (!active) continue;
-    st.visible++;
-    const debt = GT - c.simT;   // time since this chunk last ran (catch-up when it comes back into view)
-    if (debt <= 0) { c.simT = GT; continue; }   // clock turned back: nothing to undo
-    st.maxDebt = Math.max(st.maxDebt, debt);
-    const interval = Math.max(1, Math.round(1 + 6 * c.dist / SIM_TIERS[c.ti].radius));
-    if (frame - c.lastUpd < interval && debt < 30 * SIM.tiers[c.ti].dtStable) continue;
-    // score = frames waited / distance: near chunks come round often, but no chunk can starve
-    cand.push({ c, pri: weight * (1 + frame - c.lastUpd) / (0.3 + c.dist / SIM_TIERS[c.ti].radius) });
-  }
-  cand.sort((a, b) => b.pri - a.pri);
-  // 5. spend the step budget
-  let budget = SIM.stepBudget;
-  gl.disable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE); gl.disable(gl.BLEND);
-  for (const { c } of cand) {
-    if (budget <= 0) break;
-    const tier = SIM.tiers[c.ti], debt = GT - c.simT;
-    const nsteps = Math.min(budget, Math.max(1, Math.min(4, Math.ceil(debt / tier.dtStable))));
-    const dt = Math.min(tier.dtStable, debt / nsteps);
-    const morfac = Math.max(1, debt / (nsteps * dt));
-    simSync(c);
-    for (let i = 0; i < nsteps; i++) simStep(c, dt, morfac);
-    c.simT = GT; c.lastUpd = frame; budget -= nsteps;
-    st.updated++; st.steps += nsteps; st.morfac = Math.max(st.morfac, morfac);
-  }
-  st.resident = SIM.tiers.reduce((a, t) => a + t.owner.filter(o => o && o.state === 2).length, 0);
-}
-
-// Occlusion, exactly as seen: after the terrain, trees and grass are drawn (before water), each chunk's own terrain
-// patches are drawn again with depth test "equal or nearer" and no colour, clipped to the chunk's area.
-// One passing sample = visible. Zero = occluded. Chunks with no patch drawn at all this frame have no pixels on screen.
-function simQueries(eye, common, off){
-  if (!SIM.on) return;
-  const frame = QT.frame, tiers = SIM.tiers;
-  for (const it of QT.drawList) {
-    const n = it.n;
-    for (let ti = 0; ti < tiers.length; ti++) {
-      const L = SIM_TIERS[ti].L;
-      if (L <= n.level) {
-        const sh = n.level - L, c = SIM.chunks.get(simKey(ti, n.face, n.x >> sh, n.y >> sh));
-        if (c && c.state === 2) { if (c.drawnFrame !== frame) { c.drawnFrame = frame; c.qp = []; } c.qp.push(n); }
-      } else {
-        const sh = L - n.level;
-        for (const c of tiers[ti].owner) if (c && c.state === 2 && c.face === n.face && (c.x >> sh) === n.x && (c.y >> sh) === n.y) {
-          if (c.drawnFrame !== frame) { c.drawnFrame = frame; c.qp = []; } c.qp.push(n);
-        }
-      }
-    }
-  }
-  const P = SIM.prog.q; common(P);
-  const uOff = L_(P, 'uOffset'), uMorph = L_(P, 'uMorph'), uQF = L_(P, 'uQF'), uQR = L_(P, 'uQRect');
-  gl.colorMask(false, false, false, false); gl.depthMask(false);
-  let draws = 0;
-  for (const tier of tiers) for (const c of tier.owner) {
-    if (!c || c.state !== 2 || c.drawnFrame !== frame || c.qPending || frame < (c.nextQ || 0) || draws > 600) continue;
-    c.nextQ = frame + (c.qVis ? 8 + (c.x + c.y) % 5 : 1);    // visible chunks are re-checked now and then; hidden ones every frame
-    if (!c.query) c.query = gl.createQuery();
-    gl.uniformMatrix3fv(uQF, false, SIM.faceM[c.face] || (SIM.faceM[c.face] = new Float32Array(TERRAIN.FACES[c.face])));
-    gl.uniform3f(uQR, c.u0, c.v0, c.S);
-    gl.beginQuery(gl.ANY_SAMPLES_PASSED, c.query);
-    for (const n of c.qp) {
-      const o = off(n); gl.uniform3f(uOff, o[0], o[1], o[2]);
-      const k = n.arc * QT.K;
-      gl.uniform2f(uMorph, n.level >= MAXL ? 1e30 : k * 1.35, n.level >= MAXL ? 2e30 : k * 1.9);
-      setSimUniforms(P, n.simC);
-      gl.bindVertexArray(n.vao); gl.drawElements(gl.TRIANGLES, IDX_COUNT, gl.UNSIGNED_SHORT, 0);
-      draws++;
-    }
-    gl.endQuery(gl.ANY_SAMPLES_PASSED);
-    c.qPending = true;
-  }
-  gl.colorMask(true, true, true, true); gl.depthMask(true);
-}
-
-// which chunk (finest tier available) covers a terrain patch / tree node, and the uniforms to sample it
-function simRef(level, face, x, y){
-  if (!SIM.on) return null;
-  for (let ti = 0; ti < SIM_TIERS.length; ti++) {
-    const T = SIM_TIERS[ti]; if (T.L > level) continue;
-    const sh = level - T.L, c = SIM.chunks.get(simKey(ti, face, x >> sh, y >> sh));
-    if (c && c.state === 2 && c.slot >= 0) return c;
-  }
-  return null;
-}
-function setSimUniforms(P, c){
-  if (!c) { gl.uniform1f(L_(P, 'uSimOn'), 0); return; }
-  const tier = SIM.tiers[c.ti];
-  if (SIM.bound !== c.ti) {
-    gl.activeTexture(gl.TEXTURE9); gl.bindTexture(gl.TEXTURE_2D, tier.R);
-    gl.activeTexture(gl.TEXTURE10); gl.bindTexture(gl.TEXTURE_2D, tier.R2);
-    SIM.bound = c.ti;
-  }
-  gl.uniform1f(L_(P, 'uSimOn'), 1);
-  gl.uniformMatrix3fv(L_(P, 'uSimF'), false, SIM.faceM[c.face] || (SIM.faceM[c.face] = new Float32Array(TERRAIN.FACES[c.face])));
-  gl.uniform4f(L_(P, 'uSimChunk'), c.u0, c.v0, c.S, 0); gl.uniform2f(L_(P, 'uSimSlot'), c.ox, c.oy); gl.uniform1f(L_(P, 'uSimAtlas'), tier.atlas);
-  gl.uniform1f(L_(P, 'uSimCell'), tier.cell);
-  const nb = simNeighbors(c);
-  gl.uniform4f(L_(P, 'uSimNbX'), nb[0], nb[1], nb[2], nb[3]); gl.uniform4f(L_(P, 'uSimNbY'), nb[4], nb[5], nb[6], nb[7]);
-}
-function bindSimTextures(){ SIM.bound = -1; }
-// ground change and water depth under the player (tiny synchronous read, a few times per second)
-const SIM_PROBE = { t: -1, b: 0, d: 0, busy: false };
-function simProbe(dir){
-  if (!SIM.on || SIM_PROBE.busy || GAME.rt - SIM_PROBE.t < 0.25) return SIM_PROBE;
-  const fu = TERRAIN.dirToFace(dir[0], dir[1], dir[2]); if (!fu) return SIM_PROBE;
-  for (let ti = 0; ti < SIM_TIERS.length; ti++) {
-    const n = 1 << SIM_TIERS[ti].L, S = 2 / n, x = Math.floor((fu[1] + 1) / S), y = Math.floor((fu[2] + 1) / S);
-    const c = SIM.chunks.get(simKey(ti, fu[0], x, y)); if (!c || c.state !== 2) continue;
-    const cx = clamp(Math.floor((fu[1] - c.u0) / S * SIM_N), 0, SIM_N - 1), cy = clamp(Math.floor((fu[2] - c.v0) / S * SIM_N), 0, SIM_N - 1);
-    SIM_PROBE.t = GAME.rt; SIM_PROBE.busy = true;
-    readAsync(SIM.tiers[ti].fR, c.ox + cx, c.oy + cy, 1, 1, (px) => { SIM_PROBE.busy = false; SIM_PROBE.b = px[0]; SIM_PROBE.d = px[3] >= 0 && px[2] > 0 ? px[2] : 0; });
-    break;
-  }
-  return SIM_PROBE;
-}
-
-// ---------------------------------------------------------------------
 // 8. GAME STATE, SUN, MOON, TIME
 // ---------------------------------------------------------------------
-const GAME = { started:false, ready:false, rt:0, time:0, lightT:0, sunFrozen:false, timeScale:1, timeIdx:0, dayLen:1440, th0:0, geoIdx:0, geoT:0,
+const GAME = { started:false, ready:false, rt:0, time:0, lightT:0, sunFrozen:false, timeScale:1, timeIdx:0, dayLen:1440, th0:0,
   sunU:V3.norm([Math.cos(0.2), Math.sin(0.2), 0]), moonPhase0:2.3, cloudAmt:1, hud:true, perf:false,
   scales:[1, 0.75, 0.5, 1.25], scaleIdx:0, autoScale:true, details:[2.8, 3.6, 2.0], detailIdx:0,
   exposure:11, fov:72*Math.PI/180, spawn:null, spawnFwd:null, spawnEye:null, mute:false, frameTimes:[], lastLow:0 };
@@ -3180,20 +2365,17 @@ function hurt(amount, why){
     setTimeout(() => { document.getElementById('dead').style.display = 'none'; placeAtSpawn(); }, 3500);
   }
 }
-function groundInfo(dir){ // full-detail procedural height plus the simulated erosion under the player
-  return TERRAIN.heightFull(dir[0], dir[1], dir[2]) + simProbe(dir).b;
-}
 function stepWalk(dt){
   let p = PL.pos; const r = V3.len(p), up = V3.mul(p, 1 / r);
   PL.fwd = V3.norm(V3.madd(PL.fwd, up, -V3.dot(PL.fwd, up)));
   const f = PL.fwd, right = V3.norm(V3.cross(f, up));
   const g = 9.81 * (R / r) * (R / r);
   const rho = Math.exp(-Math.max(0, r - R) / ATM.HR);
-  const gh = groundInfo(up);
-  // water surface: the sea, or simulated water standing on the ground
-  const sp = simProbe(up), surf = sp.d > 0.25 && gh > 0 ? gh + sp.d : 0;
+  const gh = TERRAIN.heightFull(up[0], up[1], up[2]);
+  // water surface: the sea, or a river running through the carved channel here
+  const surf = Math.max(0, TERRAIN.riverSurface);
   const waterDepthAtFeet = R + surf - r;      // >0 when feet are below the water surface
-  const inWaterCol = gh < -0.4 || sp.d > 0.25;
+  const inWaterCol = gh < surf - 0.4;
   PL.swimming = inWaterCol && waterDepthAtFeet > 1.05;
   const fz = (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0), fx = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0);
   let wish = V3.add(V3.mul(f, fz), V3.mul(right, fx)); const wl = V3.len(wish); if (wl > 0) wish = V3.mul(wish, 1 / wl);
@@ -3238,7 +2420,7 @@ function stepWalk(dt){
   PL.stamina = Math.max(0, PL.stamina);
   let np = V3.madd(p, vel, dt);
   const nr = V3.len(np), nup = V3.mul(np, 1 / nr);
-  const ngh = groundInfo(nup), ngr = R + ngh;
+  const ngh = TERRAIN.heightFull(nup[0], nup[1], nup[2]), ngr = R + ngh;
   if (nr <= ngr) {
     const impact = -V3.dot(vel, nup);
     if (!PL.grounded && impact > 12.5) hurt((impact - 12.5) * 6.5, impact > 60 ? 'You hit the ground at ' + Math.round(impact) + ' m/s.' : 'That fall was too high.');
@@ -3432,8 +2614,7 @@ function updateHUD(eye, B, dt){
   const ft = GAME.frameTimes, avg = ft.length ? ft.reduce((a, b) => a + b, 0) / ft.length : 16;
   $('hPerf').textContent = GAME.perf ? Math.round(1000 / avg) + ' fps  ' + RT_.w + '×' + RT_.h + (RT_.samples ? ' ' + RT_.samples + '×AA' : '') + '\n' +
     QT.drawList.length + ' patches, ' + QT.waterList.length + ' water, ' + QT.treeList.length + ' forests\n' + QT.resident + ' resident, ' + pendingCount() + ' queued\n' +
-    aliveWorkers().length + ' workers, ' + (REVZ ? 'reversed-Z' : 'log depth') +
-    (SIM.on ? '\nerosion: ' + SIM.stats.resident + ' chunks, ' + SIM.stats.visible + ' visible, ' + SIM.stats.updated + ' updated (' + SIM.stats.steps + ' steps)\nbacklog ' + Math.round(SIM.stats.maxDebt) + ' s, erosion x' + Math.round(SIM.stats.morfac) : '') : Math.round(1000 / avg) + ' fps';
+    aliveWorkers().length + ' workers, ' + (REVZ ? 'reversed-Z' : 'log depth') : Math.round(1000 / avg) + ' fps';
 }
 
 // ---------------------------------------------------------------------
@@ -3451,7 +2632,7 @@ addEventListener('keydown', (e) => {
     case 'KeyT': GAME.timeIdx = (GAME.timeIdx + 1) % 4; GAME.timeScale = [1, 30, 300, 0][GAME.timeIdx]; toast(GAME.timeScale === 0 ? 'Time paused' : 'Time ×' + GAME.timeScale); break;
     case 'BracketRight': GAME.time += GAME.dayLen / 24; GAME.lightT += GAME.dayLen / 24; toast('One hour later'); break;
     case 'BracketLeft': GAME.time -= GAME.dayLen / 24; GAME.lightT -= GAME.dayLen / 24; toast('One hour earlier'); break;
-    case 'KeyU': GAME.sunFrozen = !GAME.sunFrozen; toast(GAME.sunFrozen ? 'Sun frozen' : 'Sun moving', GAME.sunFrozen ? 'Lighting stays put; time, water and erosion keep running.' : 'Day and night are back.'); break;
+    case 'KeyU': GAME.sunFrozen = !GAME.sunFrozen; toast(GAME.sunFrozen ? 'Sun frozen' : 'Sun moving', GAME.sunFrozen ? 'Lighting stays put; time and clouds keep moving.' : 'Day and night are back.'); break;
     case 'KeyP': GAME.autoScale = false; GAME.scaleIdx = (GAME.scaleIdx + 1) % GAME.scales.length; resize(); toast('Render scale ' + Math.round(GAME.scales[GAME.scaleIdx] * 100) + '%'); break;
     case 'KeyO': GAME.detailIdx = (GAME.detailIdx + 1) % 3; QT.K = GAME.details[GAME.detailIdx]; toast('Terrain detail: ' + ['normal', 'high', 'low'][GAME.detailIdx]); break;
     case 'F3': GAME.perf = !GAME.perf; break;
@@ -3459,7 +2640,6 @@ addEventListener('keydown', (e) => {
     case 'KeyN': if (PL.mode === 'fly') { PL.noclip = !PL.noclip; toast(PL.noclip ? 'Collision off' : 'Collision on'); } break;
     case 'KeyM': GAME.mute = !GAME.mute; toast(GAME.mute ? 'Sound off' : 'Sound on'); break;
     case 'KeyK': GAME.cloudAmt = GAME.cloudAmt > 0 ? 0 : 1; toast(GAME.cloudAmt ? 'Clouds on' : 'Clouds off'); break;
-    case 'KeyJ': if (SIM.tiers.length) { SIM.on = !SIM.on; toast(SIM.on ? 'Water and erosion on' : 'Water and erosion paused', 'Paused chunks catch up when switched back on.'); } break;
   }
 });
 addEventListener('keyup', (e) => { keys[e.code] = false; });
@@ -3516,8 +2696,6 @@ function render(eye, B){
   gl.activeTexture(gl.TEXTURE6); gl.bindTexture(gl.TEXTURE_2D_ARRAY, TEX.arr);
   gl.activeTexture(gl.TEXTURE7); gl.bindTexture(gl.TEXTURE_2D, TEX.atlas);
   gl.activeTexture(gl.TEXTURE8); gl.bindTexture(gl.TEXTURE_2D, TEX.atlasN);
-  bindSimTextures();
-  SIM.VP = VP; SIM.logFC = 2 / logFar;
   const common = (P) => {
     gl.useProgram(P.p);
     gl.uniformMatrix4fv(L_(P, 'uVP'), false, VP); gl.uniform1f(L_(P, 'uLogFC'), 2 / logFar);
@@ -3541,7 +2719,6 @@ function render(eye, B){
   let tris = 0;
   if (!SK.terrain) for (const it of QT.drawList) {
     const n = it.n, o = off(n);
-    n.simC = simRef(n.level, n.face, n.x, n.y); setSimUniforms(P, n.simC);
     gl.uniform3f(uOff, o[0], o[1], o[2]);
     const k = n.arc * QT.K;
     gl.uniform2f(uMorph, n.level >= MAXL ? 1e30 : k * 1.35, n.level >= MAXL ? 2e30 : k * 1.9);
@@ -3555,7 +2732,6 @@ function render(eye, B){
   gl.uniform4f(L_(P, 'uFade'), -2, -1, LODR.mesh[0], LODR.mesh[1]);
   if (!SK.trees) for (const it of QT.treeList) {
     const n = it.n, o = off(n);
-    setSimUniforms(P, simRef(n.level, n.face, n.x, n.y));
     gl.uniform3f(uOffT, o[0], o[1], o[2]);
     const lod = it.dist < 300 ? 0 : 1;
     for (let t = 0; t < 4; t++) { const vao = n.tvaos[lod][t]; if (!vao) continue; if (t === 2 && it.dist > 700) continue; gl.bindVertexArray(vao); gl.drawArraysInstanced(gl.TRIANGLES, 0, TREE_MESH[t][lod].count, n.treeCounts[t]); tris += TREE_MESH[t][lod].count / 3 * n.treeCounts[t]; }
@@ -3570,8 +2746,7 @@ function render(eye, B){
     gl.uniform1f(uBill, bill);
     for (const it of list) {
       const n = it.n, o = off(n);
-      setSimUniforms(P, simRef(n.level, n.face, n.x, n.y));
-      gl.uniform3f(uOffS, o[0], o[1], o[2]); gl.uniform4f(uFadeS, it.fade[0], it.fade[1], it.fade[2], it.fade[3]);
+        gl.uniform3f(uOffS, o[0], o[1], o[2]); gl.uniform4f(uFadeS, it.fade[0], it.fade[1], it.fade[2], it.fade[3]);
       for (const t of [0, 1, 3]) { const vao = n.svaos[t]; if (!vao) continue; gl.bindVertexArray(vao); gl.drawArraysInstanced(gl.TRIANGLES, 0, tpl.count, n.treeCounts[t]); tris += tpl.count / 3 * n.treeCounts[t]; }
     }
   }
@@ -3581,37 +2756,17 @@ function render(eye, B){
   const uOffG = L_(P, 'uOffset'), uWB = L_(P, 'uWrapBase'), uGN = L_(P, 'uGrassN');
   if (!SK.grass) for (const it of QT.grassList) {
     const n = it.n, o = off(n);
-    setSimUniforms(P, simRef(n.level, n.face, n.x, n.y));
     gl.uniform3f(uOffG, o[0], o[1], o[2]); gl.uniform3f(uWB, n.wrapBase[0], n.wrapBase[1], n.wrapBase[2]);
     const fcnt = n.gcount * clamp(1.45 - it.dist / 38, 0.25, 1), cnt = Math.min(n.gcount, Math.ceil(fcnt));
     gl.uniform1f(uGN, fcnt);
     gl.bindVertexArray(n.gvao); gl.drawArraysInstanced(gl.TRIANGLES, 0, TPL.grass.count, cnt); tris += cnt * TPL.grass.count / 3;
   }
-  // exact per-pixel chunk occlusion, while the depth buffer holds terrain, trees and grass (water must not hide riverbeds)
-  simQueries(eye, common, off);
   // water
   P = PROG.water; common(P);
   const uOffW = L_(P, 'uOffset');
   // from underwater the skirts (drawn after the surface triangles) would show as bright lines, so skip them
   const under = PL.underwater && GAME.started;
-  if (!SK.water) for (const it of QT.waterList) { const n = it.n, o = off(n); setSimUniforms(P, n.simC); gl.uniform3f(uOffW, o[0], o[1], o[2]); gl.bindVertexArray(n.wvao); gl.drawElements(gl.TRIANGLES, under ? n.winner : n.wcount, gl.UNSIGNED_SHORT, 0); }
-  // simulated land water (streams, puddles, lakes) on the patches that have a simulation chunk
-  if (SIM.on) {
-    if (a2c) gl.enable(gl.SAMPLE_ALPHA_TO_COVERAGE);
-    P = PROG.simWater; common(P);
-    const uOffSW = L_(P, 'uOffset'), uMorphSW = L_(P, 'uMorph');
-    for (const it of QT.drawList) {
-      // only where the mesh is fine enough to show the water (vertex spacing <= 4 sim cells); coarser patches would smear
-      // a narrow river's depth across whole triangles into a sheet. Far away the painted rivers take over.
-      const n = it.n; if (!n.simC || n.level < SIM_TIERS[n.simC.ti].L + 1) continue;   // (the shader fades water out with distance)
-      const o = off(n); setSimUniforms(P, n.simC);
-      gl.uniform3f(uOffSW, o[0], o[1], o[2]);
-      const k = n.arc * QT.K;
-      gl.uniform2f(uMorphSW, n.level >= MAXL ? 1e30 : k * 1.35, n.level >= MAXL ? 2e30 : k * 1.9);
-      gl.bindVertexArray(n.vao); gl.drawElements(gl.TRIANGLES, IDX_COUNT, gl.UNSIGNED_SHORT, 0);
-    }
-    if (a2c) gl.disable(gl.SAMPLE_ALPHA_TO_COVERAGE);
-  }
+  if (!SK.water) for (const it of QT.waterList) { const n = it.n, o = off(n); gl.uniform3f(uOffW, o[0], o[1], o[2]); if (n.wvao) { gl.bindVertexArray(n.wvao); gl.drawElements(gl.TRIANGLES, under ? n.winner : n.wcount, gl.UNSIGNED_SHORT, 0); } if (n.rvao) { gl.bindVertexArray(n.rvao); gl.drawElements(gl.TRIANGLES, n.rcount, gl.UNSIGNED_SHORT, 0); } }
   QT.stats.tris = tris;
   // resolve MSAA
   if (RT_.msFBO) {
@@ -3713,7 +2868,6 @@ function frame(now){
   }
   dispatch();
   if (QT.frame % 30 === 0) evictOld();
-  simFrame(eye, frus);
   updateExposure(eye, dt);
   if (!(window.__TD && __TD.noRender)) { render(eye, B); if (__TD.rendered !== undefined) __TD.rendered++; }
   if (GAME.started) {
@@ -3759,7 +2913,7 @@ function boot(){
       resize();
       $('loadBar').style.width = '22%';
     });
-    await step('Painting the weather…', () => { buildCloudCube(512); simInit(); $('loadBar').style.width = '28%'; });
+    await step('Painting the weather…', () => { buildCloudCube(512); $('loadBar').style.width = '28%'; });
     await step('Raising continents…', () => {
       for (let f = 0; f < 6; f++) { const n = new QNode(f, 0, 0, 0, null); uploadNode(n, TERRAIN.buildPatch(f, 0, 0, 0)); QT.roots.push(n); }
       findSpawn(); placeAtSpawn(); SUN_P = sunDirP();
@@ -3770,7 +2924,7 @@ function boot(){
   })().catch(e => fatal(String(e && e.stack || e)));
 }
 // test hook used for automated screenshots (harmless in normal play)
-window.__TD = { gl, RT_, SIM, get exposure(){ return GAME.exposure; }, view: null, GAME, PL, QT, TERRAIN, V3, R, rotY, planetAngle, sunDirP, startGame, targetBasis, eyePos, toggleFly, keys };
+window.__TD = { gl, RT_, get exposure(){ return GAME.exposure; }, view: null, GAME, PL, QT, TERRAIN, V3, R, rotY, planetAngle, sunDirP, startGame, targetBasis, eyePos, toggleFly, keys };
 boot();
 </script>
 </body>
